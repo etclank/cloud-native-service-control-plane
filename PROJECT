@@ -6,6 +6,6 @@ cliVersion: 4.15.0
 domain: eoghanclancy.eu
 layout:
 - go.kubebuilder.io/v4
-projectName: cloud-native-service-control-plane
+projectName: platform-operator
 repo: github.com/etclank/cloud-native-service-control-plane
 version: "3"

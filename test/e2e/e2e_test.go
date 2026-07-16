@@ -34,16 +34,16 @@ import (
 )
 
 // namespace where the project is deployed in
-const namespace = "cloud-native-service-control-plane-system"
+const namespace = "platform-system"
 
 // serviceAccountName created for the project
-const serviceAccountName = "cloud-native-service-control-plane-controller-manager"
+const serviceAccountName = "platform-operator-controller-manager"
 
 // metricsServiceName is the name of the metrics service of the project
-const metricsServiceName = "cloud-native-service-control-plane-controller-manager-metrics-service"
+const metricsServiceName = "platform-operator-controller-manager-metrics-service"
 
 // metricsRoleBindingName is the name of the RBAC that will be created to allow get the metrics data
-const metricsRoleBindingName = "cloud-native-service-control-plane-metrics-binding"
+const metricsRoleBindingName = "platform-operator-metrics-binding"
 
 var _ = Describe("Manager", Ordered, func() {
 	var controllerPodName string
@@ -176,7 +176,7 @@ var _ = Describe("Manager", Ordered, func() {
 		It("should ensure the metrics endpoint is serving metrics", func() {
 			By("creating a ClusterRoleBinding for the service account to allow access to metrics")
 			cmd := exec.Command("kubectl", "create", "clusterrolebinding", metricsRoleBindingName,
-				"--clusterrole=cloud-native-service-control-plane-metrics-reader",
+				"--clusterrole=platform-operator-metrics-reader",
 				fmt.Sprintf("--serviceaccount=%s:%s", namespace, serviceAccountName),
 			)
 			_, err := utils.Run(cmd)
