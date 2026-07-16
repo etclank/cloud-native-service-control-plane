@@ -1,0 +1,56 @@
+name: E2E Tests
+
+on:
+  push:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  test-e2e:
+    permissions:
+      contents: read
+    name: Run on Ubuntu
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version-file: go.mod
+
+      - name: Install checksum-verified Kind
+        env:
+          KIND_VERSION: v0.32.0
+          KIND_SHA256: 50030de23cf40a18505f20426f6a8506bedf13c6e509244bd1fa9463721b0f54
+        run: |
+          set -euo pipefail
+
+          kind_path="${RUNNER_TEMP}/kind"
+
+          curl \
+            --fail \
+            --location \
+            --silent \
+            --show-error \
+            --output "${kind_path}" \
+            "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+
+          echo "${KIND_SHA256}  ${kind_path}" |
+            sha256sum --check -
+
+          chmod 0755 "${kind_path}"
+          echo "${RUNNER_TEMP}" >> "${GITHUB_PATH}"
+
+      - name: Verify kind installation
+        run: kind version
+
+      - name: Running Test e2e
+        run: |
+          go mod tidy
+          make test-e2e
