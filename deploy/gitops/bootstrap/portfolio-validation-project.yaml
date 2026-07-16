@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: portfolio-validation
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  description: Restricted project for portfolio validation workloads
+
+  sourceRepos:
+    - git@github.com:etclank/cloud-native-service-control-plane.git
+
+  destinations:
+    - namespace: registry-validation
+      server: https://kubernetes.default.svc
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ServiceAccount
+    - group: ""
+      kind: Service
+    - group: apps
+      kind: Deployment

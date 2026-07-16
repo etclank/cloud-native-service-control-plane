@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: registry-smoke
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  project: portfolio-validation
+
+  source:
+    repoURL: git@github.com:etclank/cloud-native-service-control-plane.git
+    targetRevision: main
+    path: kubernetes/validation/registry
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: registry-validation
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=false
+
+  revisionHistoryLimit: 10
