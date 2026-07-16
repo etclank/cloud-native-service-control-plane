@@ -8,4 +8,14 @@ layout:
 - go.kubebuilder.io/v4
 projectName: platform-operator
 repo: github.com/etclank/cloud-native-service-control-plane
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: eoghanclancy.eu
+  group: platform
+  kind: ManagedService
+  path: github.com/etclank/cloud-native-service-control-plane/api/v1alpha1
+  version: v1alpha1
 version: "3"
