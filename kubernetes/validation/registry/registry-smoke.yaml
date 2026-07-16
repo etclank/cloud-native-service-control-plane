@@ -22,7 +22,7 @@ metadata:
     app.kubernetes.io/component: infrastructure-validation
     app.kubernetes.io/version: sha-90e0703a4f6f9af60179328e1f0662ab59b28408
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: registry-smoke
