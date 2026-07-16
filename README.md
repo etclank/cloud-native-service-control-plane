@@ -2,7 +2,7 @@
 
 A portfolio platform for building, deploying, operating, and observing Kubernetes-managed services with Go, Kubernetes operators, GitOps, and OpenTelemetry.
 
-> Current status: infrastructure foundation complete through H4 (DNS and trusted TLS). Application and platform components are planned but are not yet deployed.
+> Current status: infrastructure foundation complete through H5 (private GHCR and digest-pinned image delivery). Application and platform components are planned but are not yet deployed.
 
 ## Project Purpose
 
@@ -41,6 +41,11 @@ The implemented environment currently provides:
 - trusted public HTTPS with automatic renewal;
 - permanent HTTP-to-HTTPS redirection;
 - a lightweight public validation endpoint.
+- a private GitHub repository and linked private GHCR package;
+- a SHA-tagged GitHub Actions container build;
+- private K3s registry authentication using a read-only credential;
+- a digest-pinned internal registry validation workload;
+- source-to-runtime image traceability.
 
 Current validation endpoint:
 
@@ -274,7 +279,7 @@ See [`docs/operator-guide.md`](docs/operator-guide.md) for the complete procedur
 | H2 — Operating-system hardening | Complete | Updated Ubuntu, hardened SSH, automatic security updates, bounded logs |
 | H3 — K3s installation | Complete | Healthy pinned cluster, private administration, DNS/Ingress/PVC validation |
 | H4 — DNS and TLS | Complete | Public domain, cert-manager, production certificate, HTTPS redirect |
-| H5 — GHCR and CI access | In progress | Container build, publication, immutable tags, cluster pull validation |
+| H5 — GHCR and CI access | Complete | Private package, immutable build identity, read-only pull Secret, digest-pinned deployment |
 | H6 — Argo CD bootstrap | Not started | GitOps controller and initial Application |
 | H7 — Platform deployment | Not started | Operator, control-plane API, and managed workload |
 | H8 — Observability deployment | Not started | Metrics, logs, traces, dashboards |

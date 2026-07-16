@@ -1493,7 +1493,526 @@ Validated results:
 
 ---
 
-# Operational Concepts Learned Through H1–H4
+# H5 — GitHub Container Registry and CI Access
+
+## H5.1 Objective
+
+Create a private source repository and container registry workflow, publish a traceable validation image, authenticate K3s to private GHCR, deploy the image by immutable digest, and prove both successful and failed image-pull diagnosis.
+
+The final H5 flow is:
+
+```text
+Local Git commit
+      |
+      v
+Private GitHub repository
+      |
+      | push to main
+      v
+GitHub Actions workflow
+      |
+      | temporary GITHUB_TOKEN with packages:write
+      v
+Private GHCR package
+      |
+      | dedicated PAT classic with read:packages only
+      v
+Encrypted Kubernetes dockerconfig Secret
+      |
+      v
+K3s pulls an exact sha256 image digest
+      |
+      v
+Running pod reports the source Git commit
+```
+
+## H5.2 Repository Initialization
+
+The existing local project folder was initialized with `main` as its default branch:
+
+```bash
+cd ~/projects/cloud-native-service-control-plane
+git init -b main
+```
+
+Before staging, `.gitignore` excluded credentials, local administrative files, environment files, private key formats, kubeconfigs, build output, and Terraform state. `.terraform.lock.hcl` was intentionally left trackable because dependency lock files should normally be committed for reproducibility.
+
+The repository was scanned for credential-like filenames and content. The scan returned no credential patterns:
+
+```bash
+rg -l \
+  --hidden \
+  -g '!.git/**' \
+  -g '!*.md' \
+  '(-----BEGIN ([O]PENSSH|RSA|EC|DSA|PRIVATE) PRIVATE KEY-----|[g]ithub_pat_[A-Za-z0-9_]+|[g]h[pousr]_[A-Za-z0-9_]+|[c]lient-key-data:|HCLOUD[_]TOKEN=)' \
+  . \
+  || echo "No credential patterns detected"
+```
+
+The repository uses a GitHub-provided no-reply address for commit attribution so the personal email address is not exposed in Git commit metadata:
+
+```bash
+GH_LOGIN="$(gh api user --jq '.login')"
+GH_ID="$(gh api user --jq '.id')"
+
+git config user.name "Eoghan Clancy"
+git config user.email "${GH_ID}+${GH_LOGIN}@users.noreply.github.com"
+
+unset GH_LOGIN GH_ID
+```
+
+The initial commit contained only public documentation and non-secret Kubernetes manifests:
+
+```bash
+git add .
+git diff --cached --check
+git commit -m "Bootstrap Hetzner K3s infrastructure foundation"
+```
+
+GitHub CLI created and pushed the repository:
+
+```bash
+gh repo create cloud-native-service-control-plane \
+  --public \
+  --source=. \
+  --remote=origin \
+  --push \
+  --description "Cloud-native portfolio platform using Go, Kubernetes operators, K3s, GitOps, and OpenTelemetry"
+```
+
+The repository was subsequently changed to private while implementation is in progress. Current repository identity:
+
+```text
+Repository: etclank/cloud-native-service-control-plane
+Default branch: main
+Visibility: private
+Remote: https://github.com/etclank/cloud-native-service-control-plane.git
+```
+
+Changing repository visibility does not itself expose or revoke Kubernetes credentials. It changes repository access and influences the default visibility of newly published linked packages.
+
+## H5.3 Immutable GitHub Action Pins
+
+Workflow actions were pinned to full commit SHAs rather than mutable major-version tags:
+
+| Action | Release | Commit SHA |
+| --- | --- | --- |
+| `actions/checkout` | v7.0.0 | `9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` |
+| `docker/setup-buildx-action` | v4.2.0 | `bb05f3f5519dd87d3ba754cc423b652a5edd6d2c` |
+| `docker/login-action` | v4.4.0 | `af1e73f918a031802d376d3c8bbc3fe56130a9b0` |
+| `docker/metadata-action` | v6.2.0 | `dc802804100637a589fabce1cb79ff13a1411302` |
+| `docker/build-push-action` | v7.3.0 | `53b7df96c91f9c12dcc8a07bcb9ccacbed38856a` |
+
+They were resolved through the authenticated GitHub API:
+
+```bash
+for action in \
+  "actions/checkout:v7.0.0" \
+  "docker/setup-buildx-action:v4.2.0" \
+  "docker/login-action:v4.4.0" \
+  "docker/metadata-action:v6.2.0" \
+  "docker/build-push-action:v7.3.0"
+do
+    repository="${action%%:*}"
+    version="${action##*:}"
+    sha="$(gh api "repos/${repository}/commits/${version}" --jq '.sha')"
+    printf '%-35s %-8s %s\n' "$repository" "$version" "$sha"
+done
+```
+
+Pinning a commit protects the workflow from an action tag being moved to different code. Updates must be reviewed and deliberately pinned to a new SHA.
+
+## H5.4 Registry Smoke Image
+
+The H5 image is an infrastructure validation tool, not a product application.
+
+Files:
+
+```text
+images/registry-smoke/
+├── Dockerfile
+└── README.md
+```
+
+The Dockerfile:
+
+```dockerfile
+FROM busybox:1.37.0
+
+ARG BUILD_DATE=unknown
+ARG GIT_SHA=unknown
+ARG SOURCE_URL=unknown
+
+LABEL org.opencontainers.image.title="Registry smoke image"
+LABEL org.opencontainers.image.description="GHCR and Kubernetes image-pull validation image"
+LABEL org.opencontainers.image.source="${SOURCE_URL}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+
+RUN mkdir -p /www \
+    && printf \
+      '{"service":"registry-smoke","revision":"%s","built_at":"%s"}\n' \
+      "${GIT_SHA}" \
+      "${BUILD_DATE}" \
+      > /www/index.html \
+    && chmod 0444 /www/index.html
+
+USER 65534:65534
+
+EXPOSE 8080
+
+ENTRYPOINT ["httpd", "-f", "-p", "8080", "-h", "/www"]
+```
+
+Design properties:
+
+- pinned BusyBox version;
+- unprivileged UID/GID 65534;
+- non-privileged port 8080;
+- source revision baked into the response;
+- OCI source, revision, creation, title, and description labels;
+- no shell or Kubernetes credentials embedded in the image.
+
+Docker was not installed in the local WSL distribution. That did not block H5 because GitHub-hosted runners built and validated the image. Local Docker Desktop WSL integration remains optional.
+
+## H5.5 GitHub Actions GHCR Workflow
+
+File:
+
+```text
+.github/workflows/registry-smoke.yml
+```
+
+The workflow:
+
+```yaml
+name: Registry smoke image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - images/registry-smoke/**
+      - .github/workflows/registry-smoke.yml
+  pull_request:
+    paths:
+      - images/registry-smoke/**
+      - .github/workflows/registry-smoke.yml
+  workflow_dispatch:
+
+concurrency:
+  group: registry-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}-registry-smoke
+
+jobs:
+  build:
+    name: Build and optionally publish
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long,prefix=sha-
+
+      - name: Record build time
+        id: build
+        shell: bash
+        run: |
+          echo "created=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Build and optionally publish image
+        id: image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ./images/registry-smoke
+          file: ./images/registry-smoke/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          build-args: |
+            BUILD_DATE=${{ steps.build.outputs.created }}
+            GIT_SHA=${{ github.sha }}
+            SOURCE_URL=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Publish immutable image identity
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
+          echo "Digest: ${{ steps.image.outputs.digest }}"
+```
+
+Important behavior:
+
+- pushes to `main` build and publish;
+- pull requests build but do not authenticate or publish;
+- manual dispatches are supported;
+- `GITHUB_TOKEN` is temporary and scoped to `contents:read` and `packages:write`;
+- no personal token is stored in repository Actions secrets;
+- deployment tags contain the full Git commit;
+- the workflow reports the immutable registry digest;
+- cache data is stored in GitHub Actions cache.
+
+## H5.6 Workflow and Package Evidence
+
+The image workflow completed successfully:
+
+```text
+Workflow run: 29479198410
+Source commit: 90e0703a4f6f9af60179328e1f0662ab59b28408
+Image tag: sha-90e0703a4f6f9af60179328e1f0662ab59b28408
+Image digest: sha256:53019aa1ef2810c7d5e9085c31a0518bafd9bb48f1be61433883f0bdac206ca9
+Package: cloud-native-service-control-plane-registry-smoke
+Package repository: etclank/cloud-native-service-control-plane
+Package visibility: private
+```
+
+The local GitHub CLI initially returned `403` when reading package metadata because its OAuth token did not include `read:packages`. This did not affect the workflow, which used a separate `GITHUB_TOKEN`.
+
+The local CLI permission was refreshed:
+
+```bash
+gh auth refresh \
+  --hostname github.com \
+  --scopes read:packages
+```
+
+The GHCR API then confirmed the package link, visibility, tag, and digest. Additional untagged OCI digests were left intact because they are auxiliary image-index, platform, or provenance-related manifests generated by BuildKit.
+
+## H5.7 Private Pull Credential
+
+Because the repository and GHCR package are private, K3s cannot pull the image anonymously. A dedicated Personal Access Token (classic) was created with:
+
+```text
+Name: portfolio-k3s-ghcr-pull
+Expiration: 90 days
+Scope: read:packages only
+```
+
+It did not receive `write:packages`, `delete:packages`, `repo`, `workflow`, or administrative scopes.
+
+The token was entered into a shell variable without writing its literal value into shell history:
+
+```bash
+read -rsp "GHCR read-only token: " GHCR_PULL_TOKEN
+echo
+```
+
+The Kubernetes namespace and registry Secret were created:
+
+```bash
+kubectl create namespace registry-validation \
+  --dry-run=client \
+  -o yaml |
+kubectl apply -f -
+
+kubectl create secret docker-registry ghcr-pull \
+  --namespace registry-validation \
+  --docker-server=ghcr.io \
+  --docker-username=etclank \
+  --docker-password="$GHCR_PULL_TOKEN" \
+  --dry-run=client \
+  -o yaml |
+kubectl apply -f -
+
+unset GHCR_PULL_TOKEN
+```
+
+Validated metadata:
+
+```text
+Secret: ghcr-pull
+Type: kubernetes.io/dockerconfigjson
+Data entries: 1
+Namespace: registry-validation
+```
+
+The Secret value was never printed or committed. K3s stores it within its encrypted Secrets datastore.
+
+The token must be rotated before its expiry unless the package is intentionally made public and the pull Secret is removed.
+
+## H5.8 Digest-pinned Kubernetes Deployment
+
+Files:
+
+```text
+kubernetes/validation/registry/
+├── kustomization.yaml
+└── registry-smoke.yaml
+```
+
+The stable manifest contains:
+
+- the `registry-validation` Namespace;
+- a `registry-smoke` ServiceAccount referencing `ghcr-pull`;
+- disabled ServiceAccount API-token automounting;
+- a one-replica Deployment;
+- an image reference pinned to the exact digest;
+- non-root and read-only container security controls;
+- readiness and liveness probes;
+- small CPU and memory requests and limits;
+- an internal ClusterIP Service.
+
+The deployed image reference is:
+
+```text
+ghcr.io/etclank/cloud-native-service-control-plane-registry-smoke@sha256:53019aa1ef2810c7d5e9085c31a0518bafd9bb48f1be61433883f0bdac206ca9
+```
+
+The registry Secret is intentionally absent from Kustomize:
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - registry-smoke.yaml
+```
+
+Validate and apply:
+
+```bash
+kubectl apply \
+  --server-side \
+  --dry-run=server \
+  -k kubernetes/validation/registry/
+
+kubectl apply -k kubernetes/validation/registry/
+
+kubectl rollout status \
+  deployment/registry-smoke \
+  -n registry-validation \
+  --timeout=180s
+```
+
+The declared image and runtime `imageID` both matched the same GHCR digest.
+
+## H5.9 Runtime Traceability Validation
+
+An ephemeral public BusyBox client queried the private image through Kubernetes Service DNS:
+
+```bash
+kubectl run registry-smoke-client \
+  -n registry-validation \
+  --image=busybox:1.37.0 \
+  --restart=Never \
+  --rm \
+  -i \
+  -- \
+  wget -qO- \
+  http://registry-smoke.registry-validation.svc.cluster.local/
+```
+
+The running private image returned:
+
+```json
+{"service":"registry-smoke","revision":"90e0703a4f6f9af60179328e1f0662ab59b28408","built_at":"2026-07-16T07:13:45Z"}
+```
+
+This joined the complete evidence chain:
+
+```text
+Git commit
+  = workflow head SHA
+  = immutable GHCR tag
+  = image OCI revision
+  = runtime HTTP revision
+
+GHCR digest
+  = Kubernetes desired image digest
+  = container runtime imageID
+```
+
+## H5.10 Controlled Failure Diagnosis
+
+A temporary invalid `dockerconfigjson` Secret and pod were created to prove the private registry failure path. They were not added to Git.
+
+The pod used the correct private tag with deliberately invalid credentials and `imagePullPolicy: Always`. Kubernetes events showed:
+
+```text
+failed to authorize
+403 Forbidden
+ErrImagePull
+ImagePullBackOff
+```
+
+This proves how to distinguish registry authentication failure from application startup failure. The container never started, so application logs would not be the correct diagnostic source. The relevant evidence was in `kubectl describe pod` and Warning events.
+
+The invalid pod and Secret were deleted immediately:
+
+```bash
+kubectl delete pod \
+  -n registry-validation \
+  registry-pull-failure
+
+kubectl delete secret \
+  -n registry-validation \
+  ghcr-invalid
+```
+
+The real digest-pinned Deployment remained fully rolled out with one `1/1 Running` pod and zero restarts. Only `ghcr-pull` remained.
+
+## H5 Security Decisions
+
+- The repository and package are currently private.
+- GitHub Actions publishes with the repository-scoped `GITHUB_TOKEN`.
+- No PAT is stored in GitHub Actions or Git.
+- K3s receives a separate read-only token rather than the developer's GitHub CLI credential.
+- The token has an expiry and must be rotated.
+- The Kubernetes Secret is namespace-scoped and referenced through a dedicated ServiceAccount.
+- The pod does not receive a Kubernetes API token.
+- Deployment uses an immutable digest rather than `latest`.
+- Runtime identity is traceable to source control.
+- Deliberately invalid credentials were removed after testing.
+
+## H5 Exit Criteria
+
+- GitHub repository exists and is connected to the local project;
+- CI builds the validation image on GitHub-hosted infrastructure;
+- workflow dependencies are pinned to full commit SHAs;
+- GHCR publication uses `GITHUB_TOKEN` rather than a stored PAT;
+- package is linked to the correct repository;
+- image has a full commit-based tag and immutable digest;
+- cluster can authenticate and pull the private image;
+- registry credential is absent from Git;
+- running image revision matches the source commit;
+- desired image digest matches the runtime image ID;
+- controlled invalid credentials produce diagnosable pull failures;
+- stable Deployment remains healthy after failure cleanup.
+
+---
+
+# Operational Concepts Learned Through H1–H5
 
 ## Desired State and Reconciliation
 
@@ -1600,7 +2119,7 @@ kubectl get events -n NAMESPACE --sort-by='.lastTimestamp'
 | H2 | Complete | Updated and hardened Ubuntu host |
 | H3 | Complete | Healthy pinned K3s cluster with private local administration |
 | H4 | Complete | Public DNS, cert-manager, trusted TLS, renewal, HTTPS redirect |
-| H5 | Not started | GitHub Container Registry and CI access |
+| H5 | Complete | Private GHCR publication, read-only cluster authentication, immutable digest deployment |
 | H6 | Not started | Argo CD bootstrap |
 | H7 | Not started | Platform deployment |
 | H8 | Not started | Observability deployment |
@@ -1631,4 +2150,3 @@ Final phase status
 ```
 
 The document should record the tested path, not merely paste generic installation instructions.
-
