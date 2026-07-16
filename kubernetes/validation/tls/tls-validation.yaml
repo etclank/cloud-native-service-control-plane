@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tls-validation
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: validation-web
+  namespace: tls-validation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: validation-web
+  template:
+    metadata:
+      labels:
+        app: validation-web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: busybox:1.37.0
+          command:
+            - /bin/sh
+            - -c
+          args:
+            - |
+              echo 'tls-production-validation-ok' > /www/index.html
+              exec httpd -f -p 8080 -h /www
+          ports:
+            - name: http
+              containerPort: 8080
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: content
+              mountPath: /www
+      volumes:
+        - name: content
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: validation-web
+  namespace: tls-validation
+spec:
+  selector:
+    app: validation-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: validation-web
+  namespace: tls-validation
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: tls-validation-redirect-https@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - test.platform.eoghanclancy.eu
+      secretName: test-platform-production-tls
+  rules:
+    - host: test.platform.eoghanclancy.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: validation-web
+                port:
+                  name: http

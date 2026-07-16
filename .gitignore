@@ -1,0 +1,43 @@
+# Environment and credentials
+.env
+.env.*
+!.env.example
+secrets/
+*.secret.yaml
+
+# SSH and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+authorized_keys
+
+# Kubernetes administration
+.kube/
+*.kubeconfig
+kubeconfig
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Local tooling
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build output
+bin/
+build/
+dist/
+coverage/
+*.out
+
+# Temporary files
+*.tmp
+*.swp
+*~
