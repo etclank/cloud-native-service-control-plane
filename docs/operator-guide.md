@@ -1,7 +1,7 @@
 # Cloud-Native Service Control Plane — Operator Guide
 
-> Status: Working guide, version 0.1  
-> Last updated: 15 July 2026  
+> Status: Working guide, version 0.2  
+> Last updated: 16 July 2026  
 > Environment: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s  
 > This guide should be reviewed and finalized after the complete platform is deployed.
 
@@ -11,7 +11,9 @@ This is the day-to-day connection and operating guide for the portfolio environm
 
 - connect to the Hetzner server;
 - start and stop the private Kubernetes API tunnel;
+- start and stop private Argo CD access;
 - use `kubectl` from WSL;
+- inspect and reconcile the GitOps Application;
 - validate the server, cluster, DNS, and public ingress;
 - recognize common connection failures;
 - avoid exposing or committing administrative credentials.
@@ -28,6 +30,8 @@ It is an operator runbook, not the full architectural explanation. A separate sy
 | Server size | CX23, 2 vCPU, 4 GB RAM, 40 GB SSD |
 | Kubernetes | Single-node K3s `v1.36.2+k3s1` |
 | Ingress controller | Traefik |
+| Certificate controller | cert-manager `v1.21.0` |
+| GitOps controller | Argo CD `v3.4.5` |
 | SSH user | `eoghan` |
 | Local SSH alias | `portfolio-k3s` |
 | Public IPv4 | `142.132.178.45` |
@@ -37,6 +41,7 @@ It is an operator runbook, not the full architectural explanation. A separate sy
 | Local Kubernetes API endpoint | `https://127.0.0.1:16443` |
 | Remote Kubernetes API endpoint | `127.0.0.1:6443`, reached through SSH |
 | SSH control socket | `~/.ssh/controlmasters/portfolio-k3s-tunnel.sock` |
+| Local Argo CD endpoint | `https://127.0.0.1:18080`, available only while port-forwarding |
 
 The server is intentionally a portfolio and learning environment. It is not a highly available production cluster.
 
@@ -51,6 +56,7 @@ Create the project workspace under `~/projects`:
 │   ├── general-context.md
 │   ├── infrastructure-context.md
 │   ├── operator-guide.md
+│   ├── argocd-sync-rollback-runbook.md
 │   ├── system-explanation.md
 │   ├── learning-guide.md
 │   ├── architecture/
@@ -65,6 +71,7 @@ Recommended initial files:
 
 - `docs/infrastructure-context.md`: the original project and infrastructure specification.
 - `docs/operator-guide.md`: this document.
+- `docs/argocd-sync-rollback-runbook.md`: exact synchronization, diagnosis, rollback, and Git reconciliation procedure.
 - `docs/system-explanation.md`: how traffic, Kubernetes, storage, security, GitOps, and observability work together. Complete later.
 - `docs/learning-guide.md`: concepts, commands, interview questions, and troubleshooting exercises. Complete later.
 - `docs/decisions/`: short architecture decision records for important choices.
@@ -84,7 +91,7 @@ Do not place private SSH keys, kubeconfig files, passwords, API tokens, certific
 
 ## 4. Administrative Access Model
 
-There are two separate administrative connections.
+There are three related administrative connections.
 
 ### 4.1 SSH shell access
 
@@ -118,6 +125,21 @@ K3s Kubernetes API
 Port `6443` is not exposed publicly. The local tunnel makes the remote Kubernetes API temporarily available only on WSL loopback port `16443`.
 
 The SSH shell and the Kubernetes tunnel are related but independent. Closing an ordinary SSH shell does not necessarily close a background tunnel, and closing WSL stops the tunnel even though the server and K3s continue running.
+
+### 4.3 Private Argo CD access
+
+```text
+Local Argo CD CLI or browser
+    |
+    | https://127.0.0.1:18080
+    v
+kubectl port-forward
+    |
+    v
+ClusterIP service/argocd-server
+```
+
+The port-forward travels through the Kubernetes API connection described above. It does not expose Argo CD on the VM's public network. The Kubernetes API SSH tunnel must therefore be running before the Argo CD port-forward can work.
 
 ## 5. Connect to the Server
 
@@ -249,7 +271,48 @@ Expected node state:
 portfolio-k3s-01   Ready
 ```
 
-## 7. Stop the Kubernetes Tunnel
+## 7. Access Argo CD Privately
+
+The matching CLI is installed at `~/.local/bin/argocd`. Configure the shell:
+
+```bash
+export KUBECONFIG="$HOME/.kube/portfolio-k3s.yaml"
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+After validating Kubernetes access, open a second WSL terminal and keep this process in the foreground:
+
+```bash
+export KUBECONFIG="$HOME/.kube/portfolio-k3s.yaml"
+
+kubectl port-forward \
+  --namespace argocd \
+  --address 127.0.0.1 \
+  service/argocd-server \
+  18080:443
+```
+
+The private UI is then available at:
+
+```text
+https://127.0.0.1:18080
+```
+
+The internal certificate produces a browser warning on this loopback endpoint. No public Argo CD hostname exists.
+
+Validate CLI access from the original terminal:
+
+```bash
+argocd account get-user-info
+argocd repo list
+argocd app get registry-smoke
+```
+
+Stop only the Argo CD port-forward with `Ctrl+C` in its terminal. Argo CD and its Applications continue running in the cluster.
+
+The complete synchronization, diagnosis, rollback, Git reconciliation, and credential-rotation procedure is in [`docs/argocd-sync-rollback-runbook.md`](argocd-sync-rollback-runbook.md).
+
+## 8. Stop the Kubernetes Tunnel
 
 ```bash
 ssh \
@@ -266,9 +329,9 @@ ss -lnt | grep ':16443 ' || echo 'Kubernetes tunnel stopped'
 
 Stopping the tunnel does not stop K3s or any workload on the server. It only ends the private administrative path from the current WSL environment.
 
-## 8. Routine Validation Commands
+## 9. Routine Validation Commands
 
-### 8.1 Local cluster checks through the tunnel
+### 9.1 Local cluster checks through the tunnel
 
 ```bash
 export KUBECONFIG="$HOME/.kube/portfolio-k3s.yaml"
@@ -289,7 +352,7 @@ kubectl top nodes
 kubectl top pods --all-namespaces --sort-by=memory
 ```
 
-### 8.2 Server and K3s checks over SSH
+### 9.2 Server and K3s checks over SSH
 
 ```bash
 ssh portfolio-k3s
@@ -321,7 +384,7 @@ sudo journalctl -u k3s -f
 
 Press `Ctrl+C` to stop following logs. Do not restart K3s merely because an old warning appears in the journal; first inspect current pod and node health.
 
-### 8.3 DNS validation
+### 9.3 DNS validation
 
 ```bash
 dig +short A test.platform.eoghanclancy.eu
@@ -335,7 +398,7 @@ Current expected result:
 - the `A` queries return `142.132.178.45`;
 - the `AAAA` query returns nothing because no IPv6 DNS record has been created.
 
-### 8.4 Public ingress validation
+### 9.4 Public ingress validation
 
 ```bash
 curl -sS \
@@ -352,7 +415,7 @@ After TLS is configured, use:
 curl -vI https://test.platform.eoghanclancy.eu/
 ```
 
-### 8.5 Public exposure validation
+### 9.5 Public exposure validation
 
 From WSL:
 
@@ -379,7 +442,7 @@ Intended public exposure:
 | 8080/TCP | Filtered | Administrative/application service |
 | 9090/TCP | Filtered | Prometheus |
 
-## 9. Common Problems
+## 10. Common Problems
 
 ### `kubectl` reports connection refused on `127.0.0.1:16443`
 
@@ -470,7 +533,7 @@ kubectl logs -n NAMESPACE POD_NAME --all-containers --previous
 
 Replace the uppercase placeholders; do not run them literally.
 
-## 10. Security Rules
+## 11. Security Rules
 
 - Never commit `~/.ssh/hetzner_portfolio_ed25519` or any private key.
 - Never commit `~/.kube/portfolio-k3s.yaml`.
@@ -509,7 +572,7 @@ secrets/
 
 Do not rely on `.gitignore` as permission to place secrets in the repository. Keep them outside the project tree whenever possible.
 
-## 11. Current Platform Status
+## 12. Current Platform Status
 
 Completed:
 
@@ -522,18 +585,18 @@ Completed:
 - internal service DNS and PVC persistence test;
 - private local `kubectl` access through SSH tunnelling;
 - domain purchase and registrar account two-factor authentication;
-- public DNS for `test.platform.eoghanclancy.eu`.
+- public DNS for `test.platform.eoghanclancy.eu`;
+- cert-manager with Let's Encrypt staging and production issuers;
+- trusted public TLS and permanent HTTP-to-HTTPS redirection;
+- private GHCR publication and digest-pinned cluster deployment;
+- Argo CD `v3.4.5` with private administrative access;
+- read-only private repository registration;
+- restricted AppProject and manually synchronized Application;
+- tested operational rollback and Git reconciliation.
 
-In progress:
+Later work will add the platform workloads, observability, persistent data services, backup procedures, monitoring, and final documentation.
 
-- H4: DNS and TLS;
-- cert-manager installation;
-- Let's Encrypt staging certificate;
-- Let's Encrypt production certificate and HTTPS validation.
-
-Later work will add GitOps, platform workloads, observability, persistent data services, backup procedures, monitoring, and final documentation.
-
-## 12. Planned Final Documentation
+## 13. Planned Final Documentation
 
 At project completion, update this guide with:
 
@@ -550,4 +613,3 @@ At project completion, update this guide with:
 - links to architecture decisions and application documentation.
 
 The final `system-explanation.md` should explain the complete request, deployment, storage, telemetry, and GitOps flows. The final `learning-guide.md` should translate the implementation into concepts, exercises, likely interview questions, and concise explanations of design trade-offs.
-
