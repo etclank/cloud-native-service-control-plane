@@ -1,2 +1,7 @@
 resources:
 - manager.yaml
+
+images:
+- name: controller
+  newName: ghcr.io/etclank/cloud-native-service-control-plane-operator
+  digest: sha256:377af6a1fb4df40c52d6be37d4e948ca1990fe4c0f840789da68fc3e449ffc75
