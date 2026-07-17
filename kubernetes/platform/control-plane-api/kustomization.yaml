@@ -7,3 +7,6 @@ resources:
   - rbac.yaml
   - deployment.yaml
   - service.yaml
+  - certificate.yaml
+  - middleware.yaml
+  - ingress.yaml

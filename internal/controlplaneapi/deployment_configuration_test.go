@@ -28,6 +28,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -38,8 +39,16 @@ import (
 
 const (
 	controlPlaneAPINamespace = "platform-system"
+	certificateKind          = "Certificate"
+	ingressKind              = "Ingress"
+	middlewareKind           = "Middleware"
 	managedServiceRoleName   = "control-plane-api-managedservice"
+	productionIssuerName     = "letsencrypt-production"
+	publicAPIHostname        = "api.platform.eoghanclancy.eu"
+	rateLimitMiddlewareName  = "control-plane-api-rate-limit"
+	redirectMiddlewareName   = "control-plane-api-redirect-https"
 	serviceAccountKind       = "ServiceAccount"
+	tlsSecretName            = "control-plane-api-tls"
 	roleKind                 = "Role"
 	approvedAPIImage         = "ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:" +
 		"22ffdf07c24af219a1fe493095c3293c480da4f3cdc04ccc167e65ae81d631ad"
@@ -56,6 +65,32 @@ type renderedResourceKey struct {
 	Kind      string
 	Namespace string
 	Name      string
+}
+
+type renderedCertificate struct {
+	Spec struct {
+		SecretName string   `json:"secretName"`
+		DNSNames   []string `json:"dnsNames"`
+		IssuerRef  struct {
+			Group string `json:"group"`
+			Kind  string `json:"kind"`
+			Name  string `json:"name"`
+		} `json:"issuerRef"`
+	} `json:"spec"`
+}
+
+type renderedMiddleware struct {
+	Spec struct {
+		RedirectScheme *struct {
+			Scheme    string `json:"scheme"`
+			Permanent bool   `json:"permanent"`
+		} `json:"redirectScheme,omitempty"`
+		RateLimit *struct {
+			Average int64  `json:"average"`
+			Burst   int64  `json:"burst"`
+			Period  string `json:"period"`
+		} `json:"rateLimit,omitempty"`
+	} `json:"spec"`
 }
 
 func TestRenderedControlPlaneAPIConfiguration(t *testing.T) {
@@ -87,6 +122,26 @@ func TestRenderedControlPlaneAPIConfiguration(t *testing.T) {
 			Namespace: controlPlaneAPINamespace,
 			Name:      controlPlaneAPIResourceName,
 		}: {},
+		{
+			Kind:      certificateKind,
+			Namespace: controlPlaneAPINamespace,
+			Name:      controlPlaneAPIResourceName,
+		}: {},
+		{
+			Kind:      ingressKind,
+			Namespace: controlPlaneAPINamespace,
+			Name:      controlPlaneAPIResourceName,
+		}: {},
+		{
+			Kind:      middlewareKind,
+			Namespace: controlPlaneAPINamespace,
+			Name:      redirectMiddlewareName,
+		}: {},
+		{
+			Kind:      middlewareKind,
+			Namespace: controlPlaneAPINamespace,
+			Name:      rateLimitMiddlewareName,
+		}: {},
 	}
 	gotKeys := make(map[renderedResourceKey]struct{}, len(resources))
 	for key := range resources {
@@ -100,6 +155,7 @@ func TestRenderedControlPlaneAPIConfiguration(t *testing.T) {
 	assertControlPlaneAPIRBAC(t, resources)
 	assertControlPlaneAPIDeployment(t, resources)
 	assertControlPlaneAPIService(t, resources)
+	assertControlPlaneAPITLS(t, resources)
 }
 
 func assertControlPlaneAPIServiceAccount(
@@ -248,7 +304,10 @@ func assertAPIContainer(t *testing.T, container *corev1.Container) {
 		ContainerPort: 8080,
 		Protocol:      corev1.ProtocolTCP,
 	}}) {
-		t.Errorf("control-plane API container ports = %#v", container.Ports)
+		t.Fatalf("control-plane API container ports = %#v", container.Ports)
+	}
+	if container.Ports[0].HostPort != 0 {
+		t.Errorf("control-plane API container exposes hostPort %d", container.Ports[0].HostPort)
 	}
 	wantEnvironment := []corev1.EnvVar{
 		{Name: "PORT", Value: "8080"},
@@ -349,6 +408,106 @@ func assertControlPlaneAPIService(
 		len(service.Spec.Ports) != 1 || service.Spec.Ports[0].Port != 80 ||
 		service.Spec.Ports[0].TargetPort != intstr.FromString("http") {
 		t.Errorf("control-plane API Service = %#v", service.Spec)
+	}
+}
+
+func assertControlPlaneAPITLS(
+	t *testing.T,
+	resources map[renderedResourceKey]*unstructured.Unstructured,
+) {
+	t.Helper()
+
+	certificate := &renderedCertificate{}
+	convertRenderedResource(t, resources, renderedResourceKey{
+		Kind:      certificateKind,
+		Namespace: controlPlaneAPINamespace,
+		Name:      controlPlaneAPIResourceName,
+	}, certificate)
+	if certificate.Spec.SecretName != tlsSecretName ||
+		!reflect.DeepEqual(certificate.Spec.DNSNames, []string{publicAPIHostname}) ||
+		certificate.Spec.IssuerRef.Group != "cert-manager.io" ||
+		certificate.Spec.IssuerRef.Kind != "ClusterIssuer" ||
+		certificate.Spec.IssuerRef.Name != productionIssuerName {
+		t.Errorf("control-plane API Certificate = %#v", certificate.Spec)
+	}
+
+	assertControlPlaneAPIMiddlewares(t, resources)
+	assertControlPlaneAPIIngress(t, resources)
+}
+
+func assertControlPlaneAPIMiddlewares(
+	t *testing.T,
+	resources map[renderedResourceKey]*unstructured.Unstructured,
+) {
+	t.Helper()
+
+	redirect := &renderedMiddleware{}
+	convertRenderedResource(t, resources, renderedResourceKey{
+		Kind:      middlewareKind,
+		Namespace: controlPlaneAPINamespace,
+		Name:      redirectMiddlewareName,
+	}, redirect)
+	if redirect.Spec.RedirectScheme == nil ||
+		redirect.Spec.RedirectScheme.Scheme != "https" ||
+		!redirect.Spec.RedirectScheme.Permanent || redirect.Spec.RateLimit != nil {
+		t.Errorf("control-plane API redirect Middleware = %#v", redirect.Spec)
+	}
+
+	rateLimit := &renderedMiddleware{}
+	convertRenderedResource(t, resources, renderedResourceKey{
+		Kind:      middlewareKind,
+		Namespace: controlPlaneAPINamespace,
+		Name:      rateLimitMiddlewareName,
+	}, rateLimit)
+	if rateLimit.Spec.RateLimit == nil || rateLimit.Spec.RateLimit.Average != 5 ||
+		rateLimit.Spec.RateLimit.Burst != 10 ||
+		rateLimit.Spec.RateLimit.Period != "1s" ||
+		rateLimit.Spec.RedirectScheme != nil {
+		t.Errorf("control-plane API rate-limit Middleware = %#v", rateLimit.Spec)
+	}
+}
+
+func assertControlPlaneAPIIngress(
+	t *testing.T,
+	resources map[renderedResourceKey]*unstructured.Unstructured,
+) {
+	t.Helper()
+
+	ingress := &networkingv1.Ingress{}
+	convertRenderedResource(t, resources, renderedResourceKey{
+		Kind:      ingressKind,
+		Namespace: controlPlaneAPINamespace,
+		Name:      controlPlaneAPIResourceName,
+	}, ingress)
+	wantAnnotations := map[string]string{
+		"traefik.ingress.kubernetes.io/router.entrypoints": "web,websecure",
+		"traefik.ingress.kubernetes.io/router.middlewares": "platform-system-control-plane-api-redirect-https@kubernetescrd," +
+			"platform-system-control-plane-api-rate-limit@kubernetescrd",
+	}
+	if !reflect.DeepEqual(ingress.Annotations, wantAnnotations) {
+		t.Errorf("control-plane API Ingress annotations = %#v", ingress.Annotations)
+	}
+	if ingress.Spec.IngressClassName == nil ||
+		*ingress.Spec.IngressClassName != "traefik" ||
+		!reflect.DeepEqual(ingress.Spec.TLS, []networkingv1.IngressTLS{{
+			Hosts:      []string{publicAPIHostname},
+			SecretName: tlsSecretName,
+		}}) {
+		t.Errorf("control-plane API Ingress TLS configuration = %#v", ingress.Spec)
+	}
+	if len(ingress.Spec.Rules) != 1 || ingress.Spec.Rules[0].Host != publicAPIHostname ||
+		strings.Contains(ingress.Spec.Rules[0].Host, "*") ||
+		ingress.Spec.Rules[0].HTTP == nil ||
+		len(ingress.Spec.Rules[0].HTTP.Paths) != 1 {
+		t.Fatalf("control-plane API Ingress rules = %#v", ingress.Spec.Rules)
+	}
+	path := ingress.Spec.Rules[0].HTTP.Paths[0]
+	if path.Path != "/" || path.PathType == nil ||
+		*path.PathType != networkingv1.PathTypePrefix ||
+		path.Backend.Service == nil ||
+		path.Backend.Service.Name != controlPlaneAPIResourceName ||
+		path.Backend.Service.Port.Number != 80 {
+		t.Errorf("control-plane API Ingress path = %#v", path)
 	}
 }
 

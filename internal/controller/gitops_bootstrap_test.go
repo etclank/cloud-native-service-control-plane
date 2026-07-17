@@ -152,8 +152,11 @@ func assertPlatformProject(t *testing.T, project argoProject) {
 		{Group: "", Kind: "ServiceAccount"}:                       {},
 		{Group: "", Kind: "Service"}:                              {},
 		{Group: "apps", Kind: "Deployment"}:                       {},
+		{Group: "cert-manager.io", Kind: "Certificate"}:           {},
+		{Group: "networking.k8s.io", Kind: "Ingress"}:             {},
 		{Group: "rbac.authorization.k8s.io", Kind: "Role"}:        {},
 		{Group: "rbac.authorization.k8s.io", Kind: "RoleBinding"}: {},
+		{Group: "traefik.io", Kind: "Middleware"}:                 {},
 	}
 	gotNamespaceResources := permissionSet(
 		t,
