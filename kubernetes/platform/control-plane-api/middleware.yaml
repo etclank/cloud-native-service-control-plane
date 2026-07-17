@@ -1,0 +1,26 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: control-plane-api-redirect-https
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/name: control-plane-api
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: control-plane-api-rate-limit
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/name: control-plane-api
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  rateLimit:
+    average: 5
+    burst: 10
+    period: 1s

@@ -1,0 +1,9 @@
+apiVersion: platform.eoghanclancy.eu/v1alpha1
+kind: ManagedService
+metadata:
+  name: portfolio-demo
+  namespace: applications
+spec:
+  template: demo-http
+  replicas: 1
+  message: Hello from a ManagedService

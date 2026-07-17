@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: control-plane-api
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/name: control-plane-api
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: platform-system-control-plane-api-redirect-https@kubernetescrd,platform-system-control-plane-api-rate-limit@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - api.platform.eoghanclancy.eu
+      secretName: control-plane-api-tls
+  rules:
+    - host: api.platform.eoghanclancy.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: control-plane-api
+                port:
+                  number: 80

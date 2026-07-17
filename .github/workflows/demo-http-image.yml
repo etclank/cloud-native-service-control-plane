@@ -1,0 +1,99 @@
+name: Demo HTTP image
+
+on:
+  push:
+    paths:
+      - cmd/demo-http/**
+      - internal/demohttp/**
+      - images/demo-http/Dockerfile
+      - go.mod
+      - go.sum
+      - .github/workflows/demo-http-image.yml
+  pull_request:
+    paths:
+      - cmd/demo-http/**
+      - internal/demohttp/**
+      - images/demo-http/Dockerfile
+      - go.mod
+      - go.sum
+      - .github/workflows/demo-http-image.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: ghcr.io/etclank/cloud-native-service-control-plane-demo-http
+
+jobs:
+  build:
+    name: Build and optionally publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: metadata
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=long,prefix=sha-
+
+      - name: Build and optionally publish image
+        id: image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: images/demo-http/Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          cache-from: type=gha,scope=demo-http
+          cache-to: type=gha,mode=max,scope=demo-http
+          sbom: true
+          provenance: mode=max
+
+      - name: Summarize image identity
+        if: steps.image.outcome == 'success'
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          {
+            echo "### Demo HTTP image"
+            echo
+            echo "- Image: \`${IMAGE_REFERENCE}\`"
+            echo "- Digest: \`${IMAGE_DIGEST}\`"
+            echo "- Source commit: \`${SOURCE_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Image: ${IMAGE_REFERENCE}"
+          echo "Digest: ${IMAGE_DIGEST}"
+          echo "Source commit: ${SOURCE_SHA}"
