@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: control-plane-api
+  namespace: platform-system
+  labels:
+    app.kubernetes.io/name: control-plane-api
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: control-plane-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

@@ -31,7 +31,13 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
 
-const platformRepositoryURL = "git@github.com:etclank/cloud-native-service-control-plane.git"
+const (
+	argoAPIVersion        = "argoproj.io/v1alpha1"
+	argoNamespace         = "argocd"
+	clusterServer         = "https://kubernetes.default.svc"
+	platformProjectName   = "platform-control-plane"
+	platformRepositoryURL = "git@github.com:etclank/cloud-native-service-control-plane.git"
+)
 
 type argoProject struct {
 	APIVersion string `json:"apiVersion"`
@@ -91,9 +97,14 @@ func TestPlatformOperatorGitOpsBootstrap(t *testing.T) {
 		t,
 		"platform-operator-application.yaml",
 	)
+	apiApplication := decodeBootstrapResource[argoApplication](
+		t,
+		"control-plane-api-application.yaml",
+	)
 
 	assertPlatformProject(t, project)
-	assertPlatformApplication(t, application)
+	assertPlatformOperatorApplication(t, application)
+	assertControlPlaneAPIApplication(t, apiApplication)
 
 	requiredClusterResources := renderedClusterScopedResources(t)
 	projectClusterResources := permissionSet(
@@ -112,11 +123,11 @@ func TestPlatformOperatorGitOpsBootstrap(t *testing.T) {
 func assertPlatformProject(t *testing.T, project argoProject) {
 	t.Helper()
 
-	if project.APIVersion != "argoproj.io/v1alpha1" || project.Kind != "AppProject" {
+	if project.APIVersion != argoAPIVersion || project.Kind != "AppProject" {
 		t.Errorf("project identity = %s %s", project.APIVersion, project.Kind)
 	}
-	if project.Metadata.Name != "platform-control-plane" ||
-		project.Metadata.Namespace != "argocd" {
+	if project.Metadata.Name != platformProjectName ||
+		project.Metadata.Namespace != argoNamespace {
 		t.Errorf("project metadata = %#v", project.Metadata)
 	}
 	if project.Spec.Description == "" {
@@ -125,28 +136,50 @@ func assertPlatformProject(t *testing.T, project argoProject) {
 	if !reflect.DeepEqual(project.Spec.SourceRepos, []string{platformRepositoryURL}) {
 		t.Errorf("project source repositories = %#v", project.Spec.SourceRepos)
 	}
-	if len(project.Spec.Destinations) != 1 ||
-		project.Spec.Destinations[0].Server != "https://kubernetes.default.svc" ||
-		project.Spec.Destinations[0].Namespace != platformSystemNamespace {
+	wantDestinations := []struct {
+		Server    string `json:"server"`
+		Namespace string `json:"namespace"`
+	}{
+		{Server: clusterServer, Namespace: platformSystemNamespace},
+		{Server: clusterServer, Namespace: "applications"},
+	}
+	if !reflect.DeepEqual(project.Spec.Destinations, wantDestinations) {
 		t.Errorf("project destinations = %#v", project.Spec.Destinations)
 	}
 
 	permissionSet(t, project.Spec.ClusterResourceWhitelist)
-	permissionSet(t, project.Spec.NamespaceResourceWhitelist)
+	wantNamespaceResources := map[resourcePermission]struct{}{
+		{Group: "", Kind: "ServiceAccount"}:                       {},
+		{Group: "", Kind: "Service"}:                              {},
+		{Group: "apps", Kind: "Deployment"}:                       {},
+		{Group: "rbac.authorization.k8s.io", Kind: "Role"}:        {},
+		{Group: "rbac.authorization.k8s.io", Kind: "RoleBinding"}: {},
+	}
+	gotNamespaceResources := permissionSet(
+		t,
+		project.Spec.NamespaceResourceWhitelist,
+	)
+	if !reflect.DeepEqual(gotNamespaceResources, wantNamespaceResources) {
+		t.Errorf(
+			"namespace resource permissions = %#v, want %#v",
+			gotNamespaceResources,
+			wantNamespaceResources,
+		)
+	}
 }
 
-func assertPlatformApplication(t *testing.T, application argoApplication) {
+func assertPlatformOperatorApplication(t *testing.T, application argoApplication) {
 	t.Helper()
 
-	if application.APIVersion != "argoproj.io/v1alpha1" ||
+	if application.APIVersion != argoAPIVersion ||
 		application.Kind != "Application" {
 		t.Errorf("application identity = %s %s", application.APIVersion, application.Kind)
 	}
 	if application.Metadata.Name != "platform-operator" ||
-		application.Metadata.Namespace != "argocd" {
+		application.Metadata.Namespace != argoNamespace {
 		t.Errorf("application metadata = %#v", application.Metadata)
 	}
-	if application.Spec.Project != "platform-control-plane" {
+	if application.Spec.Project != platformProjectName {
 		t.Errorf("application project = %q", application.Spec.Project)
 	}
 	if application.Spec.Source.RepoURL != platformRepositoryURL ||
@@ -154,7 +187,7 @@ func assertPlatformApplication(t *testing.T, application argoApplication) {
 		application.Spec.Source.Path != "config/default" {
 		t.Errorf("application source = %#v", application.Spec.Source)
 	}
-	if application.Spec.Destination.Server != "https://kubernetes.default.svc" ||
+	if application.Spec.Destination.Server != clusterServer ||
 		application.Spec.Destination.Namespace != platformSystemNamespace {
 		t.Errorf("application destination = %#v", application.Spec.Destination)
 	}
@@ -170,6 +203,46 @@ func assertPlatformApplication(t *testing.T, application argoApplication) {
 	) {
 		t.Errorf(
 			"application sync options = %#v",
+			application.Spec.SyncPolicy.SyncOptions,
+		)
+	}
+}
+
+func assertControlPlaneAPIApplication(t *testing.T, application argoApplication) {
+	t.Helper()
+
+	if application.APIVersion != argoAPIVersion ||
+		application.Kind != "Application" {
+		t.Errorf("API application identity = %s %s", application.APIVersion, application.Kind)
+	}
+	if application.Metadata.Name != "control-plane-api" ||
+		application.Metadata.Namespace != argoNamespace {
+		t.Errorf("API application metadata = %#v", application.Metadata)
+	}
+	if application.Spec.Project != platformProjectName {
+		t.Errorf("API application project = %q", application.Spec.Project)
+	}
+	if application.Spec.Source.RepoURL != platformRepositoryURL ||
+		application.Spec.Source.TargetRevision != "main" ||
+		application.Spec.Source.Path != "kubernetes/platform/control-plane-api" {
+		t.Errorf("API application source = %#v", application.Spec.Source)
+	}
+	if application.Spec.Destination.Server != clusterServer ||
+		application.Spec.Destination.Namespace != platformSystemNamespace {
+		t.Errorf("API application destination = %#v", application.Spec.Destination)
+	}
+	if application.Spec.SyncPolicy.Automated != nil {
+		t.Errorf(
+			"API application has automated synchronization: %#v",
+			application.Spec.SyncPolicy.Automated,
+		)
+	}
+	if !reflect.DeepEqual(
+		application.Spec.SyncPolicy.SyncOptions,
+		[]string{"CreateNamespace=false"},
+	) {
+		t.Errorf(
+			"API application sync options = %#v",
 			application.Spec.SyncPolicy.SyncOptions,
 		)
 	}

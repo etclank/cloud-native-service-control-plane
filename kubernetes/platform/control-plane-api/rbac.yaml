@@ -1,0 +1,35 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: control-plane-api-managedservice
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: control-plane-api
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+rules:
+  - apiGroups:
+      - platform.eoghanclancy.eu
+    resources:
+      - managedservices
+    verbs:
+      - create
+      - get
+      - list
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: control-plane-api-managedservice
+  namespace: applications
+  labels:
+    app.kubernetes.io/name: control-plane-api
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: control-plane-api-managedservice
+subjects:
+  - kind: ServiceAccount
+    name: control-plane-api
+    namespace: platform-system
