@@ -91,7 +91,7 @@ func desiredReplicas(
 func (r *ManagedServiceReconciler) reconcileDeployment(
 	ctx context.Context,
 	managedService *platformv1alpha1.ManagedService,
-) error {
+) (*appsv1.Deployment, error) {
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      managedService.Name,
@@ -211,10 +211,10 @@ func (r *ManagedServiceReconciler) reconcileDeployment(
 	)
 
 	if err != nil {
-		return fmt.Errorf("reconcile Deployment: %w", err)
+		return nil, fmt.Errorf("reconcile Deployment: %w", err)
 	}
 
-	return nil
+	return deployment, nil
 }
 
 func managedServiceHTTPProbe(

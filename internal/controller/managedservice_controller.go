@@ -72,16 +72,41 @@ func (r *ManagedServiceReconciler) Reconcile(
 
 	if err := validateImmutableImage(r.DemoHTTPImage); err != nil {
 		logger.Error(err, "Invalid operator template configuration")
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.recordDegradedStatus(
+			ctx,
+			managedService,
+			reasonTemplateConfigurationInvalid,
+			err,
+		)
 	}
 
-	if err := r.reconcileDeployment(ctx, managedService); err != nil {
+	deployment, err := r.reconcileDeployment(ctx, managedService)
+	if err != nil {
 		logger.Error(err, "Failed to reconcile Deployment")
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.recordDegradedStatus(
+			ctx,
+			managedService,
+			reasonDeploymentReconcileFailed,
+			err,
+		)
 	}
 
 	if err := r.reconcileService(ctx, managedService); err != nil {
 		logger.Error(err, "Failed to reconcile Service")
+		return ctrl.Result{}, r.recordDegradedStatus(
+			ctx,
+			managedService,
+			reasonServiceReconcileFailed,
+			err,
+		)
+	}
+
+	if err := r.updateManagedServiceStatus(
+		ctx,
+		managedService,
+		deployment,
+	); err != nil {
+		logger.Error(err, "Failed to update ManagedService status")
 		return ctrl.Result{}, err
 	}
 
