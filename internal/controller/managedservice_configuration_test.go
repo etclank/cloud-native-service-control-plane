@@ -34,7 +34,8 @@ import (
 )
 
 const (
-	approvedDemoHTTPImage = "ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:" +
+	platformSystemNamespace = "platform-system"
+	approvedDemoHTTPImage   = "ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:" +
 		"2d1fc30e0cf75ba9fbe96af176f770524377ee5349acbee9ed94ae13f1143b2f"
 	approvedImagePullSecret    = "ghcr-pull"
 	approvedOperatorRepository = "ghcr.io/etclank/cloud-native-service-control-plane-operator"
@@ -57,11 +58,11 @@ func TestRenderedManagerConfiguration(t *testing.T) {
 	}
 
 	deployment := findRenderedManagerDeployment(t, rendered)
-	if deployment.Namespace != "platform-system" {
+	if deployment.Namespace != platformSystemNamespace {
 		t.Errorf(
 			"manager Deployment namespace = %q, want %q",
 			deployment.Namespace,
-			"platform-system",
+			platformSystemNamespace,
 		)
 	}
 
