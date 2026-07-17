@@ -36,7 +36,7 @@ var _ = Describe("ManagedService API validation", func() {
 		resource := &platformv1alpha1.ManagedService{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "valid-managed-service",
-				Namespace: "default",
+				Namespace: testResourceNamespace,
 			},
 			Spec: platformv1alpha1.ManagedServiceSpec{
 				Template: platformv1alpha1.ManagedServiceTemplateDemoHTTP,
@@ -65,7 +65,7 @@ var _ = Describe("ManagedService API validation", func() {
 			resource := &platformv1alpha1.ManagedService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      name,
-					Namespace: "default",
+					Namespace: testResourceNamespace,
 				},
 				Spec: spec,
 			}

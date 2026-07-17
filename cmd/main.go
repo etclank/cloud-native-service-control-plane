@@ -55,6 +55,8 @@ func init() {
 // nolint:gocyclo
 func main() {
 	var metricsAddr string
+	var demoHTTPImage string
+	var managedServiceImagePullSecret string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
 	var enableLeaderElection bool
@@ -79,6 +81,18 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(
+		&demoHTTPImage,
+		"demo-http-image",
+		"",
+		"Immutable container image used by the approved demo-http template.",
+	)
+	flag.StringVar(
+		&managedServiceImagePullSecret,
+		"managed-service-image-pull-secret",
+		"",
+		"Optional image pull Secret used by managed workloads.",
+	)
 	opts := zap.Options{
 		Development: true,
 	}
@@ -179,8 +193,10 @@ func main() {
 	}
 
 	if err := (&controller.ManagedServiceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:              mgr.GetClient(),
+		Scheme:              mgr.GetScheme(),
+		DemoHTTPImage:       demoHTTPImage,
+		ImagePullSecretName: managedServiceImagePullSecret,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "managedservice")
 		os.Exit(1)

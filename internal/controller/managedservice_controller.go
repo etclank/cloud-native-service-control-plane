@@ -25,17 +25,30 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	platformv1alpha1 "github.com/etclank/cloud-native-service-control-plane/api/v1alpha1"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // ManagedServiceReconciler reconciles a ManagedService object
 type ManagedServiceReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+
+	// DemoHTTPImage is the administrator-approved immutable image used for the
+	// demo-http template.
+	DemoHTTPImage string
+
+	// ImagePullSecretName is an optional Secret used to pull managed workload
+	// images from a private registry.
+	ImagePullSecretName string
 }
 
 // +kubebuilder:rbac:groups=platform.eoghanclancy.eu,resources=managedservices,verbs=get;list;watch
 // +kubebuilder:rbac:groups=platform.eoghanclancy.eu,resources=managedservices/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.eoghanclancy.eu,resources=managedservices/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -46,18 +59,43 @@ type ManagedServiceReconciler struct {
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.24.1/pkg/reconcile
-func (r *ManagedServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+func (r *ManagedServiceReconciler) Reconcile(
+	ctx context.Context,
+	req ctrl.Request,
+) (ctrl.Result, error) {
+	logger := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	managedService := &platformv1alpha1.ManagedService{}
+	if err := r.Get(ctx, req.NamespacedName, managedService); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if err := validateImmutableImage(r.DemoHTTPImage); err != nil {
+		logger.Error(err, "Invalid operator template configuration")
+		return ctrl.Result{}, err
+	}
+
+	if err := r.reconcileDeployment(ctx, managedService); err != nil {
+		logger.Error(err, "Failed to reconcile Deployment")
+		return ctrl.Result{}, err
+	}
+
+	if err := r.reconcileService(ctx, managedService); err != nil {
+		logger.Error(err, "Failed to reconcile Service")
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ManagedServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ManagedServiceReconciler) SetupWithManager(
+	mgr ctrl.Manager,
+) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1alpha1.ManagedService{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
 		Named("managedservice").
 		Complete(r)
 }

@@ -30,18 +30,21 @@ import (
 	platformv1alpha1 "github.com/etclank/cloud-native-service-control-plane/api/v1alpha1"
 )
 
+const testResourceNamespace = "default"
+
 var _ = Describe("ManagedService Controller", func() {
 	Context("When reconciling a resource", func() {
 		const (
-			resourceName      = "test-resource"
-			resourceNamespace = "default"
+			resourceName = "test-resource"
+
+			testManagedServiceImage = "example.com/demo-http@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 		)
 
 		ctx := context.Background()
 
 		typeNamespacedName := types.NamespacedName{
 			Name:      resourceName,
-			Namespace: resourceNamespace,
+			Namespace: testResourceNamespace,
 		}
 		managedservice := &platformv1alpha1.ManagedService{}
 
@@ -52,7 +55,7 @@ var _ = Describe("ManagedService Controller", func() {
 				resource := &platformv1alpha1.ManagedService{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      resourceName,
-						Namespace: resourceNamespace,
+						Namespace: testResourceNamespace,
 					},
 					Spec: platformv1alpha1.ManagedServiceSpec{
 						Template: platformv1alpha1.ManagedServiceTemplateDemoHTTP,
@@ -74,8 +77,9 @@ var _ = Describe("ManagedService Controller", func() {
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &ManagedServiceReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+				Client:        k8sClient,
+				Scheme:        k8sClient.Scheme(),
+				DemoHTTPImage: testManagedServiceImage,
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
