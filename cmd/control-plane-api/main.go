@@ -27,6 +27,11 @@ import (
 	"syscall"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	platformv1alpha1 "github.com/etclank/cloud-native-service-control-plane/api/v1alpha1"
 	"github.com/etclank/cloud-native-service-control-plane/internal/controlplaneapi"
 )
 
@@ -53,6 +58,24 @@ func run() error {
 		return fmt.Errorf("configure server: %w", err)
 	}
 
+	scheme := runtime.NewScheme()
+	if err := platformv1alpha1.AddToScheme(scheme); err != nil {
+		return fmt.Errorf("register ManagedService API: %w", err)
+	}
+
+	kubernetesConfig, err := ctrl.GetConfig()
+	if err != nil {
+		return fmt.Errorf("load Kubernetes configuration: %w", err)
+	}
+	kubernetesClient, err := client.New(
+		kubernetesConfig,
+		client.Options{Scheme: scheme},
+	)
+	if err != nil {
+		return fmt.Errorf("create Kubernetes client: %w", err)
+	}
+	store := controlplaneapi.NewControllerRuntimeStore(kubernetesClient)
+
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -62,7 +85,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
-		Handler:           controlplaneapi.NewHandler(token, nil),
+		Handler:           controlplaneapi.NewHandler(token, store, store.Ready),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

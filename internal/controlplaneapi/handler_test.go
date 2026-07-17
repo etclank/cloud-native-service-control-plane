@@ -33,12 +33,12 @@ func TestPublicHealthEndpoints(t *testing.T) {
 		wantStatus string
 	}{
 		{path: "/healthz", wantStatus: "healthy"},
-		{path: "/readyz", wantStatus: "ready"},
+		{path: "/readyz", wantStatus: readinessStatusReady},
 	}
 
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
-			response := apiRequest(t, NewHandler(testToken, nil), http.MethodGet, test.path, "")
+			response := apiRequest(t, NewHandler(testToken, nil, nil), http.MethodGet, test.path, "")
 			assertStatusCode(t, response, http.StatusOK)
 
 			var body statusResponse
@@ -54,20 +54,20 @@ func TestReadinessCheckCanReportUnavailable(t *testing.T) {
 	check := func(context.Context) error {
 		return errors.New("not connected")
 	}
-	response := apiRequest(t, NewHandler(testToken, check), http.MethodGet, "/readyz", "")
+	response := apiRequest(t, NewHandler(testToken, nil, check), http.MethodGet, "/readyz", "")
 	assertStatusCode(t, response, http.StatusServiceUnavailable)
 
 	var body statusResponse
 	decodeJSONResponse(t, response, &body)
-	if body.Status != "not ready" {
-		t.Errorf("status = %q, want %q", body.Status, "not ready")
+	if body.Status != readinessStatusNotReady {
+		t.Errorf("status = %q, want %q", body.Status, readinessStatusNotReady)
 	}
 }
 
 func TestProtectedRouteAcceptsValidCredentials(t *testing.T) {
 	response := apiRequest(
 		t,
-		NewHandler(testToken, nil),
+		NewHandler(testToken, nil, nil),
 		http.MethodGet,
 		"/api/v1",
 		"Bearer "+testToken,
@@ -96,7 +96,7 @@ func TestProtectedRouteRejectsInvalidCredentials(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			response := apiRequest(
 				t,
-				NewHandler(testToken, nil),
+				NewHandler(testToken, nil, nil),
 				http.MethodGet,
 				"/api/v1",
 				test.authorization,
@@ -118,7 +118,7 @@ func TestProtectedRouteRejectsInvalidCredentials(t *testing.T) {
 func TestQueryParameterDoesNotAuthenticate(t *testing.T) {
 	response := apiRequest(
 		t,
-		NewHandler(testToken, nil),
+		NewHandler(testToken, nil, nil),
 		http.MethodGet,
 		"/api/v1?token="+testToken,
 		"",
@@ -140,7 +140,7 @@ func TestUnsupportedMethodsReturnJSON(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			response := apiRequest(
 				t,
-				NewHandler(testToken, nil),
+				NewHandler(testToken, nil, nil),
 				http.MethodPost,
 				test.path,
 				test.authorization,
@@ -152,7 +152,7 @@ func TestUnsupportedMethodsReturnJSON(t *testing.T) {
 
 			var body errorResponse
 			decodeJSONResponse(t, response, &body)
-			if body.Error != "method not allowed" {
+			if body.Error != methodNotAllowedMessage {
 				t.Errorf("error = %q", body.Error)
 			}
 		})
@@ -173,7 +173,7 @@ func TestUnknownPathsReturnJSON(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			response := apiRequest(
 				t,
-				NewHandler(testToken, nil),
+				NewHandler(testToken, nil, nil),
 				http.MethodGet,
 				test.path,
 				test.authorization,
