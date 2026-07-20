@@ -2,7 +2,7 @@
 
 A portfolio platform for building, deploying, operating, and observing Kubernetes-managed services with Go, Kubernetes operators, GitOps, and OpenTelemetry.
 
-> Current status: infrastructure foundation complete through H5 (private GHCR and digest-pinned image delivery). Application and platform components are planned but are not yet deployed.
+> Current status: H7 platform deployment complete. The Kubebuilder operator, authenticated control-plane API, managed `demo-http` workload, immutable GHCR images, restricted GitOps delivery, and production API TLS are live. H8 observability remains future work.
 
 ## Project Purpose
 
@@ -40,12 +40,18 @@ The implemented environment currently provides:
 - cert-manager with Let's Encrypt staging and production issuers;
 - trusted public HTTPS with automatic renewal;
 - permanent HTTP-to-HTTPS redirection;
-- a lightweight public validation endpoint.
+- a lightweight public validation endpoint;
 - a private GitHub repository and linked private GHCR package;
 - a SHA-tagged GitHub Actions container build;
 - private K3s registry authentication using a read-only credential;
 - a digest-pinned internal registry validation workload;
-- source-to-runtime image traceability.
+- source-to-runtime image traceability;
+- Argo CD with private administration, restricted projects, and manual synchronization;
+- a Kubebuilder v4.15.0 operator serving `platform.eoghanclancy.eu/v1alpha1`;
+- `ManagedService` reconciliation into owned Deployments and ClusterIP Services;
+- a public, bearer-authenticated control-plane API at `https://api.platform.eoghanclancy.eu`;
+- production Let's Encrypt TLS, permanent HTTPS redirection, and Traefik rate limiting;
+- digest-pinned operator, API, and `demo-http` workloads.
 
 Current validation endpoint:
 
@@ -57,6 +63,12 @@ Expected response:
 
 ```text
 tls-production-validation-ok
+```
+
+Current control-plane API:
+
+```text
+https://api.platform.eoghanclancy.eu
 ```
 
 ## Architecture
@@ -113,7 +125,7 @@ SSH tunnel over restricted TCP 22
 private K3s Kubernetes API
 ```
 
-Components shown below Traefik that are not listed as implemented in the current status remain planned work.
+The operator, API, Argo CD, and managed `demo-http` path are implemented. The OpenTelemetry Collector, telemetry backends, Grafana, SmartEnergy, and synthetic probe remain later phases.
 
 ## Infrastructure Baseline
 
@@ -133,36 +145,41 @@ Components shown below Traefik that are not listed as implemented in the current
 
 The server is intentionally small for the bootstrap and low-traffic portfolio workload. It can be resized when later phases introduce memory-heavy observability and data services.
 
-## Target Platform Components
+## Platform Components
 
 ### Kubernetes Operator
 
-The Go operator will reconcile a custom `ManagedService` resource into the Kubernetes resources needed to run a managed workload. Planned responsibilities include:
+The Go operator reconciles a `ManagedService` resource into an owned Deployment and ClusterIP Service. The current API is `platform.eoghanclancy.eu/v1alpha1`, and the approved template is `demo-http`.
 
-- desired-state validation;
-- Deployment and Service management;
-- configuration and Secret references;
-- status conditions;
-- reconciliation after drift;
-- safe update and deletion behavior;
-- observability integration.
+Implemented behavior includes:
+
+- replicas defaulting to `1` with an allowed range of `1`–`3`;
+- messages up to 120 characters;
+- immutable approved-image validation;
+- owner references and Kubernetes garbage collection;
+- drift correction through idempotent reconciliation;
+- `Available`, `Progressing`, and `Degraded` status conditions;
+- ready-replica and internal endpoint reporting.
 
 ### Control-plane API
 
-The Go control-plane API will provide a user-facing REST interface over the platform domain. It will translate supported API operations into Kubernetes resources while retaining clear validation, authorization, and error boundaries.
+The Go control-plane API is available at `https://api.platform.eoghanclancy.eu`. `GET /healthz` and `GET /readyz` are public health endpoints. Routes under `/api/v1` require a bearer token loaded by the API from a mounted Secret file. The lifecycle API can create, list, get, and delete `ManagedService` resources only in the fixed `applications` namespace and only with the fixed `demo-http` template.
+
+The token value is never stored or displayed in this repository.
 
 ### Managed Demonstration Workload
 
-A small Go service will demonstrate the complete lifecycle:
+A small Go service demonstrates the complete lifecycle:
 
 ```text
 API request
   -> ManagedService resource
   -> operator reconciliation
   -> Deployment and Service
-  -> ingress and TLS
-  -> telemetry and operational status
+  -> internal endpoint and status
 ```
+
+The live `portfolio-demo` resource reports `Available=True`, `readyReplicas=1`, and returns its configured message through the internal Service. H8 will add the telemetry portion of the architecture.
 
 ### Observability
 
@@ -184,7 +201,7 @@ The existing SmartEnergy FastAPI, PostgreSQL, Redis, and dashboard project will 
 
 ## Repository Structure
 
-The repository begins with infrastructure and documentation and will expand as application development proceeds:
+The repository contains the operator, two Go HTTP binaries, immutable image workflows, Kubernetes packages, GitOps bootstrap resources, tests, and operating documentation:
 
 ```text
 cloud-native-service-control-plane/
@@ -192,24 +209,19 @@ cloud-native-service-control-plane/
 │   └── workflows/
 ├── api/
 ├── cmd/
-├── configs/
+├── config/
 ├── deploy/
 ├── docs/
-│   ├── architecture/
-│   ├── decisions/
-│   ├── runbooks/
-│   ├── build-guide.md
+│   ├── cloud-native-service-control-plane-build-guide.md
+│   ├── h7-platform-deployment-closeout.md
 │   ├── infrastructure-context.md
 │   └── operator-guide.md
-├── examples/
-├── infrastructure/
+├── images/
 ├── internal/
 ├── kubernetes/
 │   ├── bootstrap/
+│   ├── platform/
 │   └── validation/
-├── observability/
-├── pkg/
-├── scripts/
 ├── test/
 ├── Dockerfile
 ├── Makefile
@@ -223,9 +235,11 @@ Directories for components that have not yet been implemented may be introduced 
 
 | Document | Purpose |
 | --- | --- |
-| [`docs/build-guide.md`](docs/build-guide.md) | Educational reconstruction guide with tested H-phase commands |
+| [`docs/cloud-native-service-control-plane-build-guide.md`](docs/cloud-native-service-control-plane-build-guide.md) | Educational reconstruction guide with tested H-phase commands |
 | [`docs/operator-guide.md`](docs/operator-guide.md) | Daily SSH, tunnel, Kubernetes, and troubleshooting runbook |
 | [`docs/infrastructure-context.md`](docs/infrastructure-context.md) | Authoritative infrastructure requirements and phase model |
+| [`docs/h7-platform-deployment-closeout.md`](docs/h7-platform-deployment-closeout.md) | H7 implementation record, validation evidence, security boundary, and exit criteria |
+| [`docs/argocd-sync-rollback-runbook.md`](docs/argocd-sync-rollback-runbook.md) | Manual Argo CD synchronization and rollback procedure |
 
 Planned documentation includes:
 
@@ -280,8 +294,8 @@ See [`docs/operator-guide.md`](docs/operator-guide.md) for the complete procedur
 | H3 — K3s installation | Complete | Healthy pinned cluster, private administration, DNS/Ingress/PVC validation |
 | H4 — DNS and TLS | Complete | Public domain, cert-manager, production certificate, HTTPS redirect |
 | H5 — GHCR and CI access | Complete | Private package, immutable build identity, read-only pull Secret, digest-pinned deployment |
-| H6 — Argo CD bootstrap | Not started | GitOps controller and initial Application |
-| H7 — Platform deployment | Not started | Operator, control-plane API, and managed workload |
+| H6 — Argo CD bootstrap | Complete | Private Argo CD, restricted projects, manual synchronization, tested rollback |
+| H7 — Platform deployment | Complete | Operator, authenticated API, managed workload, immutable images, GitOps, TLS |
 | H8 — Observability deployment | Not started | Metrics, logs, traces, dashboards |
 | H9 — SmartEnergy deployment | Not started | API, dashboard, PostgreSQL, and Redis |
 | H10 — Network probe | Not started | Synthetic connectivity and telemetry workload |
@@ -329,6 +343,11 @@ Current controls include:
 - bounded journal retention;
 - K3s Secret encryption;
 - trusted HTTPS and automatic certificate renewal;
+- separate least-privilege operator and API ServiceAccounts;
+- API RBAC limited to create/get/list/delete `ManagedService` resources in `applications`;
+- non-root containers, dropped capabilities, read-only root filesystems, and RuntimeDefault seccomp;
+- digest-qualified runtime images;
+- private Argo CD administration and manual synchronization;
 - no kubeconfig, private keys, tokens, or Secret values in Git.
 
 Security validation is continuous. This list describes implemented controls, not a claim of formal certification or production hardening.
@@ -349,21 +368,36 @@ These are conscious cost and complexity trade-offs for a portfolio environment. 
 
 ## Current Validation
 
-Public DNS and TLS smoke test:
+H7 live validation established that:
+
+- the operator and API Argo Applications are `Synced` and `Healthy`;
+- the CRD is installed and operator, API, and demo Pods are Ready with zero restarts;
+- HTTP redirects permanently to HTTPS and the production certificate is valid;
+- public health succeeds, unauthenticated API access returns `401`, and authenticated access succeeds;
+- API-created `ManagedService` resources reconcile into owned child resources;
+- status reports `Available=True` and `readyReplicas=1`;
+- replica drift from `1` to `2` is restored to `1`;
+- deletion removes the custom resource and its owned Deployment and Service;
+- the external scan exposes only ports 22, 80, and 443 from the tested source;
+- the node baseline was approximately 6% CPU and 66% memory.
+
+Safe public checks that do not require a bearer token:
 
 ```bash
-dig +short A test.platform.eoghanclancy.eu
+dig +short A api.platform.eoghanclancy.eu
 
-curl -sSI http://test.platform.eoghanclancy.eu/
+curl -sSI http://api.platform.eoghanclancy.eu/healthz
 
-curl -fsS https://test.platform.eoghanclancy.eu/
+curl -fsS https://api.platform.eoghanclancy.eu/healthz
 ```
 
 Expected results:
 
 - DNS resolves to the current Hetzner IPv4;
 - HTTP returns a permanent redirect to HTTPS;
-- HTTPS returns `tls-production-validation-ok` using a publicly trusted certificate.
+- HTTPS returns a JSON healthy response using a publicly trusted certificate.
+
+Authenticated calls are documented in the [operator guide](docs/operator-guide.md) and deliberately avoid placing the bearer token in command arguments or documentation.
 
 ## License
 

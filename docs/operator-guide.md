@@ -1,9 +1,9 @@
 # Cloud-Native Service Control Plane — Operator Guide
 
-> Status: Working guide, version 0.2  
-> Last updated: 16 July 2026  
-> Environment: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s  
-> This guide should be reviewed and finalized after the complete platform is deployed.
+> Status: H7 operating guide, version 1.0
+> Last updated: 20 July 2026
+> Environment: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s
+> H7 is complete; observability, SmartEnergy, backup, and later roadmap phases remain future work.
 
 ## 1. Purpose
 
@@ -14,6 +14,9 @@ This is the day-to-day connection and operating guide for the portfolio environm
 - start and stop private Argo CD access;
 - use `kubectl` from WSL;
 - inspect and reconcile the GitOps Application;
+- operate the authenticated control-plane API without exposing its token;
+- inspect `ManagedService` status and generated resources;
+- rotate API and GHCR credentials safely;
 - validate the server, cluster, DNS, and public ingress;
 - recognize common connection failures;
 - avoid exposing or committing administrative credentials.
@@ -37,6 +40,9 @@ It is an operator runbook, not the full architectural explanation. A separate sy
 | Public IPv4 | `142.132.178.45` |
 | Domain | `eoghanclancy.eu` |
 | TLS validation hostname | `test.platform.eoghanclancy.eu` |
+| Control-plane API | `https://api.platform.eoghanclancy.eu` |
+| Platform namespace | `platform-system` |
+| Managed workload namespace | `applications` |
 | Local kubeconfig | `~/.kube/portfolio-k3s.yaml` |
 | Local Kubernetes API endpoint | `https://127.0.0.1:16443` |
 | Remote Kubernetes API endpoint | `127.0.0.1:6443`, reached through SSH |
@@ -306,6 +312,8 @@ Validate CLI access from the original terminal:
 argocd account get-user-info
 argocd repo list
 argocd app get registry-smoke
+argocd app get platform-operator
+argocd app get control-plane-api
 ```
 
 Stop only the Argo CD port-forward with `Ctrl+C` in its terminal. Argo CD and its Applications continue running in the cluster.
@@ -391,6 +399,7 @@ dig +short A test.platform.eoghanclancy.eu
 dig +short AAAA test.platform.eoghanclancy.eu
 dig +short A test.platform.eoghanclancy.eu @1.1.1.1
 dig +short A test.platform.eoghanclancy.eu @8.8.8.8
+dig +short A api.platform.eoghanclancy.eu
 ```
 
 Current expected result:
@@ -407,13 +416,24 @@ curl -sS \
   http://test.platform.eoghanclancy.eu/
 ```
 
-At the present stage, `404` is expected. It proves DNS resolves to the VM and Traefik receives the request, but no Ingress route exists for that hostname yet.
-
-After TLS is configured, use:
+For the H7 API, verify permanent redirection without sending credentials:
 
 ```bash
-curl -vI https://test.platform.eoghanclancy.eu/
+curl -sS \
+  -o /dev/null \
+  -w 'HTTP status: %{http_code}\n' \
+  http://api.platform.eoghanclancy.eu/healthz
 ```
+
+Expected status: `308`.
+
+Verify the production HTTPS health endpoint:
+
+```bash
+curl -fsS https://api.platform.eoghanclancy.eu/healthz
+```
+
+Expected body: `{"status":"healthy"}`.
 
 ### 9.5 Public exposure validation
 
@@ -442,7 +462,322 @@ Intended public exposure:
 | 8080/TCP | Filtered | Administrative/application service |
 | 9090/TCP | Filtered | Prometheus |
 
-## 10. Common Problems
+## 10. Operate the H7 Platform
+
+### 10.1 Check GitOps and workload health
+
+Start the Kubernetes tunnel, set `KUBECONFIG`, and open the private Argo CD port-forward using Sections 6 and 7. Then check both platform Applications:
+
+```bash
+argocd app get platform-operator
+argocd app get control-plane-api
+```
+
+Expected state for both is `Synced` and `Healthy`.
+
+Inspect platform workloads without requesting Secret contents:
+
+```bash
+kubectl get deployment,pod,service,ingress,certificate \
+  --namespace platform-system
+
+kubectl get managedservices,deployments,pods,services \
+  --namespace applications
+
+kubectl get events \
+  --all-namespaces \
+  --field-selector type=Warning \
+  --sort-by='.lastTimestamp'
+```
+
+The operator and API Pods should be Ready. `portfolio-demo` should remain active in `applications`, with its owned Deployment and Service ready.
+
+### 10.2 Create a protected temporary API header
+
+The API bearer token must not appear in shell history, process arguments, terminal output, documentation, or chat. Build a temporary curl header file directly from the Kubernetes Secret:
+
+```bash
+umask 077
+
+API_SESSION_DIR="$(mktemp -d)"
+API_HEADER_FILE="$API_SESSION_DIR/api-header"
+
+install -m 600 /dev/null "$API_HEADER_FILE"
+printf '%s: %s ' 'Authorization' 'Bearer' > "$API_HEADER_FILE"
+kubectl get secret control-plane-api-token \
+  --namespace platform-system \
+  --output jsonpath='{.data.token}' \
+  | base64 --decode >> "$API_HEADER_FILE"
+printf '\n' >> "$API_HEADER_FILE"
+chmod 600 "$API_HEADER_FILE"
+```
+
+Do not run `cat`, `head`, `tail`, `less`, `echo`, or tracing commands against this file. Do not enable `set -x` in this shell.
+
+When finished, remove it explicitly:
+
+```bash
+rm -f "$API_HEADER_FILE"
+rmdir "$API_SESSION_DIR"
+unset API_HEADER_FILE API_SESSION_DIR
+```
+
+### 10.3 Call the API safely
+
+Health and readiness are public:
+
+```bash
+curl --fail-with-body --silent --show-error \
+  https://api.platform.eoghanclancy.eu/healthz
+
+curl --fail-with-body --silent --show-error \
+  https://api.platform.eoghanclancy.eu/readyz
+```
+
+An unauthenticated lifecycle request should return `401`:
+
+```bash
+curl --silent --show-error \
+  --output /dev/null \
+  --write-out '%{http_code}\n' \
+  https://api.platform.eoghanclancy.eu/api/v1/managed-services
+```
+
+Use the protected header file for authenticated calls. Create a temporary managed service:
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request POST \
+  --header @"$API_HEADER_FILE" \
+  --header 'Content-Type: application/json' \
+  --data '{"name":"guide-check","replicas":1,"message":"Hello from the operator guide"}' \
+  https://api.platform.eoghanclancy.eu/api/v1/managed-services
+```
+
+List and get managed services:
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --header @"$API_HEADER_FILE" \
+  https://api.platform.eoghanclancy.eu/api/v1/managed-services
+
+curl --fail-with-body --silent --show-error \
+  --header @"$API_HEADER_FILE" \
+  https://api.platform.eoghanclancy.eu/api/v1/managed-services/guide-check
+```
+
+Delete the temporary service:
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --request DELETE \
+  --header @"$API_HEADER_FILE" \
+  --output /dev/null \
+  --write-out '%{http_code}\n' \
+  https://api.platform.eoghanclancy.eu/api/v1/managed-services/guide-check
+```
+
+Expected deletion status: `204`.
+
+Never copy command output and paste it back into the shell. Output is evidence to read, not a command to execute. In particular, never use command substitution around Secret, API, Argo CD, or diagnostic output unless a documented procedure explicitly requires it.
+
+### 10.4 Check status and generated resources
+
+Inspect the stable live demo:
+
+```bash
+kubectl get managedservice portfolio-demo \
+  --namespace applications \
+  --output wide
+
+kubectl get managedservice portfolio-demo \
+  --namespace applications \
+  --output jsonpath='{.status.readyReplicas}{" ready replicas\n"}{range .status.conditions[*]}{.type}{"="}{.status}{" reason="}{.reason}{"\n"}{end}'
+
+kubectl get deployment,service,pod \
+  --namespace applications \
+  --selector app.kubernetes.io/instance=portfolio-demo
+```
+
+Expected status includes `Available=True` and `readyReplicas=1`. If label selection does not return the children, inspect the named resources and owner references:
+
+```bash
+kubectl get deployment portfolio-demo \
+  --namespace applications \
+  --output jsonpath='{.metadata.ownerReferences}{"\n"}'
+
+kubectl get service portfolio-demo \
+  --namespace applications \
+  --output jsonpath='{.metadata.ownerReferences}{"\n"}'
+```
+
+### 10.5 Synchronize platform Applications manually
+
+Use a clean checkout and review the exact revision before synchronization:
+
+```bash
+cd ~/projects/cloud-native-service-control-plane
+git status --short --branch
+git pull --ff-only origin main
+
+SYNC_REVISION="$(git rev-parse HEAD)"
+printf 'Reviewed revision: %s\n' "$SYNC_REVISION"
+```
+
+Refresh and review differences:
+
+```bash
+argocd app get platform-operator --hard-refresh
+argocd app diff platform-operator
+
+argocd app get control-plane-api --hard-refresh
+argocd app diff control-plane-api
+```
+
+Synchronize only the reviewed Application and revision:
+
+```bash
+argocd app sync platform-operator --revision "$SYNC_REVISION"
+argocd app wait platform-operator --sync --health --timeout 180
+
+argocd app sync control-plane-api --revision "$SYNC_REVISION"
+argocd app wait control-plane-api --sync --health --timeout 180
+```
+
+Manual synchronization is intentional. Do not add `--prune`, enable automatic synchronization, or synchronize an unexplained diff for convenience.
+
+### 10.6 Rotate the API token without displaying it
+
+The API reads the token at process startup, so rotation requires an API rollout after replacing the Secret.
+
+```bash
+umask 077
+
+TOKEN_WORK_DIR="$(mktemp -d)"
+TOKEN_FILE="$TOKEN_WORK_DIR/token"
+
+openssl rand -hex 32 | tr -d '\n' > "$TOKEN_FILE"
+chmod 600 "$TOKEN_FILE"
+
+kubectl create secret generic control-plane-api-token \
+  --namespace platform-system \
+  --from-file=token="$TOKEN_FILE" \
+  --dry-run=client \
+  --output yaml \
+  | kubectl apply -f -
+
+kubectl rollout restart deployment/control-plane-api \
+  --namespace platform-system
+
+kubectl rollout status deployment/control-plane-api \
+  --namespace platform-system \
+  --timeout=120s
+
+rm -f "$TOKEN_FILE"
+rmdir "$TOKEN_WORK_DIR"
+unset TOKEN_FILE TOKEN_WORK_DIR
+```
+
+Recreate the temporary API header using Section 10.2 and confirm that an authenticated request succeeds. Old header files must be deleted. Never print either token for comparison.
+
+### 10.7 Copy or rotate namespace-scoped GHCR pull Secrets
+
+`ghcr-pull` is namespace-scoped. `platform-system/ghcr-pull` cannot be used by Pods in `applications`.
+
+To copy the currently approved Docker configuration without displaying it:
+
+```bash
+umask 077
+
+PULL_WORK_DIR="$(mktemp -d)"
+DOCKER_CONFIG_FILE="$PULL_WORK_DIR/config.json"
+
+kubectl get secret ghcr-pull \
+  --namespace platform-system \
+  --output jsonpath='{.data.\.dockerconfigjson}' \
+  | base64 --decode > "$DOCKER_CONFIG_FILE"
+
+chmod 600 "$DOCKER_CONFIG_FILE"
+
+kubectl create secret generic ghcr-pull \
+  --namespace applications \
+  --type kubernetes.io/dockerconfigjson \
+  --from-file=.dockerconfigjson="$DOCKER_CONFIG_FILE" \
+  --dry-run=client \
+  --output yaml \
+  | kubectl apply -f -
+
+rm -f "$DOCKER_CONFIG_FILE"
+rmdir "$PULL_WORK_DIR"
+unset DOCKER_CONFIG_FILE PULL_WORK_DIR
+```
+
+For a complete rotation, create a new GitHub token with read-only package access outside the repository. Enter it silently and let Docker create a protected temporary configuration:
+
+```bash
+umask 077
+
+PULL_WORK_DIR="$(mktemp -d)"
+chmod 700 "$PULL_WORK_DIR"
+
+read -r -s -p 'New read-only GHCR token: ' GHCR_READ_TOKEN
+printf '\n'
+printf '%s' "$GHCR_READ_TOKEN" \
+  | docker --config "$PULL_WORK_DIR" login ghcr.io \
+      --username YOUR_GITHUB_USERNAME \
+      --password-stdin
+unset GHCR_READ_TOKEN
+
+for namespace in platform-system applications; do
+  kubectl create secret generic ghcr-pull \
+    --namespace "$namespace" \
+    --type kubernetes.io/dockerconfigjson \
+    --from-file=.dockerconfigjson="$PULL_WORK_DIR/config.json" \
+    --dry-run=client \
+    --output yaml \
+    | kubectl apply -f -
+done
+
+rm -f "$PULL_WORK_DIR/config.json"
+rmdir "$PULL_WORK_DIR"
+unset PULL_WORK_DIR
+```
+
+Revoke the superseded registry token only after both namespace Secrets are updated and a controlled image-pull validation succeeds. Do not paste a token into a `kubectl --docker-password=...` argument because command arguments can be exposed through history or process inspection.
+
+### 10.8 Diagnose the production API certificate
+
+Start at the high-level Certificate and move down the ACME chain:
+
+```bash
+kubectl get certificate control-plane-api \
+  --namespace platform-system
+
+kubectl describe certificate control-plane-api \
+  --namespace platform-system
+
+kubectl get certificaterequest,order,challenge \
+  --namespace platform-system
+
+kubectl describe ingress control-plane-api \
+  --namespace platform-system
+
+kubectl get events \
+  --namespace platform-system \
+  --sort-by='.lastTimestamp'
+```
+
+Confirm DNS and public routing without requesting Secret data:
+
+```bash
+dig +short A api.platform.eoghanclancy.eu
+curl -sSI http://api.platform.eoghanclancy.eu/healthz
+curl -fsS https://api.platform.eoghanclancy.eu/healthz
+```
+
+The Certificate must use `letsencrypt-production`, exactly `api.platform.eoghanclancy.eu`, and Secret name `control-plane-api-tls`. Do not retrieve or print the TLS Secret.
+
+## 11. Common Problems
 
 ### `kubectl` reports connection refused on `127.0.0.1:16443`
 
@@ -486,7 +821,7 @@ Port 22 is restricted by the Hetzner Cloud Firewall. Determine the current WSL-v
 curl -4 https://ifconfig.me
 ```
 
-Update the Hetzner firewall's SSH source to the new address with a `/32` suffix. Do not open SSH to the entire internet as a permanent workaround.
+Update the Hetzner firewall's SSH source to the new address with a `/32` suffix. Do not open SSH to the entire internet as a permanent workaround. If a temporary `/32` source is added while changing networks, remove the old or temporary source immediately after access is restored and verified.
 
 ### SSH reports `Permission denied (publickey)`
 
@@ -533,7 +868,7 @@ kubectl logs -n NAMESPACE POD_NAME --all-containers --previous
 
 Replace the uppercase placeholders; do not run them literally.
 
-## 11. Security Rules
+## 12. Security Rules
 
 - Never commit `~/.ssh/hetzner_portfolio_ed25519` or any private key.
 - Never commit `~/.kube/portfolio-k3s.yaml`.
@@ -572,7 +907,7 @@ secrets/
 
 Do not rely on `.gitignore` as permission to place secrets in the repository. Keep them outside the project tree whenever possible.
 
-## 12. Current Platform Status
+## 13. Current Platform Status
 
 Completed:
 
@@ -592,11 +927,19 @@ Completed:
 - Argo CD `v3.4.5` with private administrative access;
 - read-only private repository registration;
 - restricted AppProject and manually synchronized Application;
-- tested operational rollback and Git reconciliation.
+- tested operational rollback and Git reconciliation;
+- Kubebuilder v4.15.0 operator and `ManagedService` CRD;
+- digest-pinned operator, API, and `demo-http` images;
+- restricted `platform-control-plane` AppProject;
+- manually synchronized `platform-operator` and `control-plane-api` Applications;
+- authenticated lifecycle API at `https://api.platform.eoghanclancy.eu`;
+- production certificate, permanent HTTPS redirect, and Traefik rate limit;
+- live `portfolio-demo` with available status and tested drift correction;
+- tested API creation and deletion with owner-driven garbage collection.
 
-Later work will add the platform workloads, observability, persistent data services, backup procedures, monitoring, and final documentation.
+H7 platform deployment is complete. Later work will add observability, persistent data services, backup procedures, and the remaining roadmap workloads.
 
-## 13. Planned Final Documentation
+## 14. Planned Final Documentation
 
 At project completion, update this guide with:
 
