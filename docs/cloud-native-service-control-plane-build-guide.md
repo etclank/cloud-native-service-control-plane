@@ -1,8 +1,8 @@
 # Cloud-Native Service Control Plane — Build and Learning Guide
 
-> Status: Working document through Phase H4  
-> Last updated: 15 July 2026  
-> Target: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s  
+> Status: Complete through Phase H7
+> Last updated: 20 July 2026
+> Target: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s
 > Purpose: Explain the build, preserve the commands, and provide a reproducible reconstruction path.
 
 ## 1. How to Use This Document
@@ -18,9 +18,12 @@ The guide currently covers:
 - H1 — Hetzner project and VM provisioning;
 - H2 — operating-system hardening;
 - H3 — K3s installation and private administration;
-- H4 — DNS and TLS foundation.
+- H4 — DNS and TLS foundation;
+- H5 — private GHCR and immutable delivery;
+- H6 — private Argo CD and tested rollback;
+- H7 — operator, control-plane API, managed workload, GitOps, and production TLS.
 
-Future phases should be appended after their implementation and validation. Commands are grouped by where they run.
+H8 and later phases should be appended only after implementation and validation. Commands are grouped by where they run.
 
 | Marker | Run the command in |
 | --- | --- |
@@ -50,12 +53,12 @@ Safe items that may be documented include public hostnames, public IP addresses,
 
 The current public IPv4 address is `142.132.178.45`. A rebuilt VM may receive a different address, so DNS and the SSH alias must be updated after reconstruction.
 
-## 3. Current Architecture Through H4
+## 3. Current Architecture Through H7
 
 ```text
                                   Public Internet
                                          |
-                      test.platform.eoghanclancy.eu
+          test.platform.eoghanclancy.eu and api.platform.eoghanclancy.eu
                                          |
                           A record: 142.132.178.45
                                          |
@@ -70,9 +73,19 @@ The current public IPv4 address is `142.132.178.45`. A rebuilt VM may receive a 
                                          |
                                   Traefik
                                          |
-                       HTTP redirect / HTTPS termination
+                  HTTP redirect / HTTPS termination / rate limit
                                          |
-                      tls-validation/validation-web Service
+                 +-----------------------+-----------------------+
+                 |                                               |
+       tls-validation Service                         control-plane API
+                                                                 |
+                                                       Kubernetes API
+                                                                 |
+                                                     ManagedService CR
+                                                                 |
+                                                          operator
+                                                                 |
+                                               owned Deployment + Service
 
 
 Local administration:
@@ -111,6 +124,11 @@ Only ports 80 and 443 are public application endpoints. Port 22 is restricted to
 | Certificate controller | cert-manager `v1.21.0` |
 | Domain | `eoghanclancy.eu` |
 | TLS validation hostname | `test.platform.eoghanclancy.eu` |
+| Control-plane API hostname | `api.platform.eoghanclancy.eu` |
+| GitOps | Private Argo CD `v3.4.5`, manual sync |
+| Operator API | `platform.eoghanclancy.eu/v1alpha1` |
+| Platform namespace | `platform-system` |
+| Managed workloads | `applications` |
 | Local kubeconfig | `~/.kube/portfolio-k3s.yaml` |
 | Local tunnel port | `127.0.0.1:16443` |
 
@@ -2012,7 +2030,295 @@ The real digest-pinned Deployment remained fully rolled out with one `1/1 Runnin
 
 ---
 
-# Operational Concepts Learned Through H1–H5
+# H7 — Platform Operator, API, Managed Workload, and Production TLS
+
+## H7.1 Objective and Result
+
+H7 turns the infrastructure foundation into a working service control plane. The completed slice provides:
+
+- a Kubebuilder v4.15.0 operator foundation;
+- the `platform.eoghanclancy.eu/v1alpha1` `ManagedService` API;
+- one approved workload template, `demo-http`;
+- an authenticated Go control-plane API;
+- immutable operator, API, and workload images;
+- restricted Kubernetes RBAC;
+- manually synchronized Argo CD Applications;
+- production TLS for `api.platform.eoghanclancy.eu`;
+- a complete create, observe, drift-correct, and delete lifecycle.
+
+The live H7 validation was completed on 20 July 2026. The platform is a single-node portfolio environment, not a highly available production service.
+
+## H7.2 Why the Platform Is Split into Layers
+
+The H7 components deliberately do not collapse into one manifest or one binary.
+
+| Layer | Responsibility | Why it is separate |
+| --- | --- | --- |
+| CRD | Defines the Kubernetes `ManagedService` contract | API schema and validation must exist before custom resources can be stored |
+| Operator | Reconciles desired service state into child resources | Long-running convergence is different from handling an HTTP request |
+| Control-plane API | Provides a constrained authenticated user interface | Public clients should not receive raw Kubernetes credentials or arbitrary manifest access |
+| RBAC | Defines what each ServiceAccount may do | Authorization remains independently reviewable and least privilege |
+| GitOps | Selects reviewed configuration from Git | Deployment approval and rollback are separate from application behavior |
+| Registry | Stores immutable OCI images | Source, build output, and runtime identity remain traceable |
+| DNS | Maps the public API name to the ingress address | Naming is external to Kubernetes workload logic |
+| TLS | Proves the public identity and encrypts transport | Certificate lifecycle belongs to cert-manager and ACME, not the API process |
+
+This separation creates useful failure boundaries. For example, a healthy API image does not prove that its RBAC is correct, a valid Certificate does not prove that the Ingress backend is ready, and an Argo `Synced` state does not replace application-level validation.
+
+## H7.3 ManagedService Contract
+
+The custom resource is:
+
+```text
+apiVersion: platform.eoghanclancy.eu/v1alpha1
+kind: ManagedService
+```
+
+The current contract intentionally exposes only a small supported surface:
+
+| Field | Rule |
+| --- | --- |
+| `spec.template` | Required and fixed to `demo-http` |
+| `spec.replicas` | Defaults to `1`; allowed range `1`–`3` |
+| `spec.message` | Optional; maximum 120 characters |
+
+The operator creates:
+
+- one Deployment using the approved immutable `demo-http` image;
+- one ClusterIP Service on the internal Kubernetes network;
+- owner references from both children to the `ManagedService`.
+
+The status surface includes:
+
+- `observedGeneration`;
+- `readyReplicas`;
+- the internal endpoint;
+- `Available`, `Progressing`, and `Degraded` conditions.
+
+Every condition records the generation it describes. A client can therefore distinguish current status from a condition that belongs to an older desired-state generation.
+
+## H7.4 Desired State, Actual State, and Status
+
+These three concepts are related but not interchangeable.
+
+**Desired state** is the `ManagedService.spec` submitted to the Kubernetes API. It says what the user wants: template, replica count, and message.
+
+**Actual state** is the current Deployment, Service, Pods, and endpoints observed in the cluster. Actual state can temporarily differ because a rollout is progressing, a Pod is failing, or someone changed a managed child manually.
+
+**Status** is the operator's report about the relationship between desired and actual state. It is not the source of truth for desired configuration.
+
+The status transition for a normal rollout is:
+
+```text
+ManagedService accepted
+  -> Progressing=True
+  -> child Deployment reports ready replicas
+  -> Available=True
+  -> Progressing=False
+  -> Degraded=False
+```
+
+Invalid operator template configuration or a failed child reconciliation produces `Degraded=True` with a bounded reason and message.
+
+## H7.5 Request-to-Reconciliation Flow
+
+```text
+Authenticated client
+  -> HTTPS at api.platform.eoghanclancy.eu
+  -> Traefik redirect/rate-limit/TLS handling
+  -> control-plane API
+  -> create ManagedService in applications
+  -> Kubernetes API validates the CRD
+  -> operator watch receives the event
+  -> operator validates its approved image configuration
+  -> CreateOrUpdate owned Deployment
+  -> CreateOrUpdate owned ClusterIP Service
+  -> Pods become ready
+  -> operator updates ManagedService status
+  -> API GET returns selected desired state and status
+```
+
+The control-plane API never accepts an arbitrary namespace, template, image, Kubernetes metadata object, label set, annotation set, or raw manifest. It always writes to `applications` and always selects `demo-http`.
+
+Public endpoints are:
+
+```text
+GET /healthz
+GET /readyz
+```
+
+Authenticated lifecycle endpoints are:
+
+```text
+POST   /api/v1/managed-services
+GET    /api/v1/managed-services
+GET    /api/v1/managed-services/{name}
+DELETE /api/v1/managed-services/{name}
+```
+
+The bearer token is loaded from a mounted Secret file. Its value is not part of the Deployment manifest, image, documentation, or command examples.
+
+## H7.6 Owner References, Garbage Collection, and Drift Correction
+
+The operator sets controller owner references on each generated Deployment and Service. Kubernetes garbage collection then removes those children when their owning `ManagedService` is deleted. This avoids a separate API delete sequence that could leave orphaned resources.
+
+Reconciliation is idempotent and uses `CreateOrUpdate`. Re-running it with the same desired state does not create duplicate resources or unnecessary status writes.
+
+Drift correction follows the same path as initial creation:
+
+```text
+someone changes an owned Deployment from replicas 1 to replicas 2
+  -> Deployment watch triggers reconciliation
+  -> operator compares actual state with ManagedService.spec
+  -> Deployment is restored to replicas 1
+```
+
+This is a central operator property: convergence is continuous, not a one-time templating operation.
+
+## H7.7 Immutable Image Identities
+
+The runtime references are exact SHA-256 digests:
+
+```text
+Operator
+ghcr.io/etclank/cloud-native-service-control-plane-operator@sha256:377af6a1fb4df40c52d6be37d4e948ca1990fe4c0f840789da68fc3e449ffc75
+
+Demo workload
+ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:2d1fc30e0cf75ba9fbe96af176f770524377ee5349acbee9ed94ae13f1143b2f
+
+Control-plane API
+ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:22ffdf07c24af219a1fe493095c3293c480da4f3cdc04ccc167e65ae81d631ad
+```
+
+The image workflows publish `sha-<full commit SHA>` tags for traceability, but Kubernetes runs the digest-qualified references. A tag is a registry pointer that can theoretically move; a digest identifies the selected image content.
+
+The multi-stage builds use pinned builder and distroless runtime bases, static Go binaries, non-root users, SBOM generation, and maximum provenance in GitHub Actions.
+
+## H7.8 Namespace-Scoped Secrets
+
+Kubernetes Secrets are namespaced. A Pod can only reference a Secret from its own namespace, even if an identically named Secret exists elsewhere.
+
+H7 uses these Secret names:
+
+| Secret | Purpose |
+| --- | --- |
+| `platform-system/ghcr-pull` | Pull operator and API images |
+| `applications/ghcr-pull` | Pull managed `demo-http` images |
+| `platform-system/control-plane-api-token` | Mount the API bearer-token file |
+| `platform-system/control-plane-api-tls` | cert-manager-generated TLS key pair |
+
+No Secret value is committed to Git. The TLS Secret is generated by cert-manager. Registry and API-token Secrets are created or rotated through controlled operational procedures.
+
+Duplicating `ghcr-pull` across namespaces is not redundant configuration: it is required by the Kubernetes security boundary. Rotation must update each permitted namespace deliberately.
+
+## H7.9 ServiceAccounts and RBAC
+
+The operator and API have separate identities.
+
+The operator owns the permissions needed to reconcile `ManagedService` resources and their Deployment and Service children. The API has a Role only in `applications`, with exactly:
+
+```text
+apiGroup: platform.eoghanclancy.eu
+resource: managedservices
+verbs: create, get, list, delete
+```
+
+The API cannot:
+
+- read or write Secrets;
+- create Deployments or Services directly;
+- access another workload namespace;
+- update or patch a `ManagedService`;
+- modify status or finalizers;
+- use cluster-wide RBAC.
+
+Both workloads run non-root with dropped Linux capabilities, RuntimeDefault seccomp, read-only root filesystems, resource requests and limits, and bounded health probes.
+
+## H7.10 GitOps and Public TLS
+
+The restricted `platform-control-plane` AppProject permits only the private repository, the exact `platform-system` and `applications` destinations, and enumerated resource kinds.
+
+Two manually synchronized Applications deploy the platform:
+
+| Application | Source path | Destination |
+| --- | --- | --- |
+| `platform-operator` | `config/default` | `platform-system` |
+| `control-plane-api` | `kubernetes/platform/control-plane-api` | `platform-system` and explicitly namespaced resources |
+
+Argo CD remains private and is accessed through a local port-forward over the Kubernetes SSH tunnel. Automatic synchronization, pruning, and self-healing are intentionally disabled.
+
+The API Certificate uses the production `letsencrypt-production` ClusterIssuer for exactly `api.platform.eoghanclancy.eu`. Traefik:
+
+- accepts public HTTP and HTTPS through the existing ports 80 and 443;
+- permanently redirects HTTP to HTTPS;
+- terminates TLS using `control-plane-api-tls`;
+- applies an average rate of 5 requests per second with a burst of 10;
+- routes only to the internal `control-plane-api` ClusterIP Service.
+
+Argo CD, Kubernetes port 6443, databases, and internal workload Services are not public.
+
+## H7.11 Recreate in Dependency Order
+
+Recreation should proceed from contracts and credentials toward public routing:
+
+1. Restore the hardened host, firewall, K3s, private kubeconfig, and SSH tunnel.
+2. Install cert-manager and the production ClusterIssuer.
+3. Install private Argo CD and register the read-only private repository.
+4. Create `platform-system/ghcr-pull` and `applications/ghcr-pull` without writing values to Git.
+5. Synchronize `platform-operator` so the CRD, RBAC, operator Deployment, and manager configuration exist.
+6. Confirm the CRD is established and the operator Pod is Ready.
+7. Create `platform-system/control-plane-api-token` securely.
+8. Synchronize `control-plane-api` so the API, restricted RBAC, Service, Certificate, Middleware, and Ingress exist.
+9. Confirm API readiness and Certificate readiness.
+10. Submit a `ManagedService` through the authenticated API.
+11. Confirm its owned Deployment, Service, Pods, endpoint, and status.
+12. Test drift correction and deletion/garbage collection.
+
+Do not synchronize both Applications blindly after a partial restore. Stop at each checkpoint and diagnose the first failing dependency.
+
+## H7.12 Validation Checkpoints and Live Evidence
+
+The closeout validation established:
+
+| Checkpoint | Observed result |
+| --- | --- |
+| GitOps | Operator and API Applications `Synced` and `Healthy` |
+| API extension | `ManagedService` CRD installed |
+| Workloads | Operator, API, and demo Pods Ready with zero restarts |
+| Public routing | HTTP returned `308`; HTTPS health succeeded |
+| Authentication | Unauthenticated API returned `401`; authenticated API succeeded |
+| Creation | `portfolio-demo` created through the API |
+| Reconciliation | Child Deployment and Service became Ready |
+| Workload | Internal response returned the configured message |
+| Status | `Available=True`, `readyReplicas=1` |
+| Drift | Deployment replicas changed from `1` to `2` and restored to `1` |
+| Deletion | `lifecycle-check` returned `204`; owner and children disappeared |
+| Retained demo | `portfolio-demo` remained active |
+| Events | No warning events |
+| Node baseline | Approximately 6% CPU and 66% memory |
+| Exposure | 22, 80, 443 open; 6443, 5432, 6379, 8080, 9090 filtered |
+| Host health | Zero failed systemd services |
+| Certificate | Valid production certificate for `api.platform.eoghanclancy.eu` |
+
+The memory observation is important for H8. A 4 GB single node has limited headroom for Prometheus, Loki, Tempo, Grafana, and an OpenTelemetry Collector. H8 must begin with conservative requests, limits, and retention rather than deploying an unbounded reference stack.
+
+## H7 Exit Criteria
+
+- [x] `ManagedService` CRD installed and validated.
+- [x] Operator ready and reconciling owned child resources.
+- [x] Control-plane API ready with constrained lifecycle endpoints.
+- [x] Public API protected by bearer authentication and production HTTPS.
+- [x] Immutable runtime digests configured.
+- [x] Least-privilege ServiceAccounts and RBAC verified.
+- [x] Manual restricted GitOps delivery verified.
+- [x] Status, internal endpoint, owner references, drift correction, and deletion verified.
+- [x] No Secret values committed or included in documentation.
+
+H7 is complete. The next phase is H8 observability deployment.
+
+---
+
+# Operational Concepts Learned Through H1–H7
 
 ## Desired State and Reconciliation
 
@@ -2120,8 +2426,8 @@ kubectl get events -n NAMESPACE --sort-by='.lastTimestamp'
 | H3 | Complete | Healthy pinned K3s cluster with private local administration |
 | H4 | Complete | Public DNS, cert-manager, trusted TLS, renewal, HTTPS redirect |
 | H5 | Complete | Private GHCR publication, read-only cluster authentication, immutable digest deployment |
-| H6 | Not started | Argo CD bootstrap |
-| H7 | Not started | Platform deployment |
+| H6 | Complete | Private Argo CD bootstrap, restricted GitOps, and tested rollback |
+| H7 | Complete | Operator, authenticated API, managed workload, immutable images, TLS, and lifecycle validation |
 | H8 | Not started | Observability deployment |
 | H9 | Not started | SmartEnergy deployment |
 | H10 | Not started | Network probe deployment |

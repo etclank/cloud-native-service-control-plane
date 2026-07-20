@@ -36,10 +36,10 @@ Suggested project repository:
 cloud-native-service-control-plane
 ```
 
-Main project context:
+Current platform closeout:
 
 ```text
-docs/general-context.md
+docs/h7-platform-deployment-closeout.md
 ```
 
 Main project README:
@@ -96,13 +96,13 @@ It must not be described as a highly available production platform unless the ar
 
 **Current hosting provider:** Hetzner Cloud
 
-**Current account status:** Existing Hetzner account available
+**Current account status:** Active portfolio project
 
-**Current VM status:** No authoritative active VM is assumed
+**Current VM status:** `portfolio-k3s-01`, CX23, 2 vCPU, 4 GB RAM, 40 GB SSD
 
-**Current deployment status:** Not deployed
+**Current deployment status:** Complete through H7 platform deployment
 
-**Current Kubernetes status:** Not installed on Hetzner
+**Current Kubernetes status:** Single-node K3s `v1.36.2+k3s1`, healthy
 
 **Local development environment:** WSL on Windows
 
@@ -110,9 +110,9 @@ It must not be described as a highly available production platform unless the ar
 
 **Public Kubernetes target:** Single-node K3s
 
-**Current phase:** Infrastructure planning
+**Current phase:** H7 complete; H8 observability deployment is next
 
-No agent should assume that a VM, firewall, domain, DNS record, cluster, registry credential, or deployed workload already exists unless the current infrastructure state has been inspected and documented.
+The live environment includes private Argo CD administration, the `ManagedService` CRD and operator, the authenticated control-plane API, and the managed `portfolio-demo` workload. Operational work must still inspect current state before changing it; this record is evidence from the H7 closeout, not permission to assume that live state can never drift.
 
 ---
 
@@ -804,7 +804,7 @@ Deployment manifests should identify exact image versions.
 
 ## 22. GitOps Strategy
 
-Argo CD will become the primary deployment reconciler after the environment bootstrap.
+Argo CD is the deployment reconciler for the platform operator and control-plane API. Synchronization is intentionally manual so a reviewed Git revision is selected before cluster state changes.
 
 Initial workflow:
 
@@ -837,7 +837,7 @@ Argo CD should use:
 * clear sync policies
 * documented rollback behaviour
 
-Automatic sync should not be enabled until failed-deployment recovery is understood.
+The tested H6 rollback procedure is documented in [`argocd-sync-rollback-runbook.md`](argocd-sync-rollback-runbook.md). Automatic sync remains disabled by design.
 
 ---
 
@@ -960,7 +960,7 @@ Required operational checks:
 
 ## 27. Control-Plane Deployment
 
-The control-plane platform includes:
+The deployed H7 control plane includes:
 
 ```text
 Go Kubernetes Operator
@@ -970,12 +970,11 @@ RBAC resources
 ServiceAccount
 Services
 Ingress
-ConfigMaps
-Secrets
-Observability configuration
+production TLS and Traefik Middleware
+digest-pinned GHCR images
 ```
 
-The deployment order should be:
+The tested recreation order is:
 
 ```text
 1. Install the CRD.
@@ -990,9 +989,21 @@ The deployment order should be:
 10. Validate status reporting.
 ```
 
-The API and Operator should use separate service accounts unless there is a strong reason to combine them.
+The operator and API use separate ServiceAccounts. The API can only create, get, list, and delete `ManagedService` resources in `applications`; it cannot read Secrets, manage Deployments or Services directly, select another namespace, update resources, or patch status.
 
-Each component should receive only the permissions it requires.
+`ManagedService` uses `platform.eoghanclancy.eu/v1alpha1` and the fixed `demo-http` template. Replicas default to one and are limited to one through three; messages are limited to 120 characters. The operator creates owned Deployments and ClusterIP Services, reports `Available`, `Progressing`, and `Degraded` conditions, reports the internal endpoint, garbage-collects owned children, and corrects drift.
+
+The public API is `https://api.platform.eoghanclancy.eu`. Health and readiness are public, while `/api/v1` lifecycle routes require a bearer token loaded from the mounted `platform-system/control-plane-api-token` Secret. The Secret value is not stored in Git.
+
+Runtime images are pinned to these immutable identities:
+
+```text
+ghcr.io/etclank/cloud-native-service-control-plane-operator@sha256:377af6a1fb4df40c52d6be37d4e948ca1990fe4c0f840789da68fc3e449ffc75
+ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:2d1fc30e0cf75ba9fbe96af176f770524377ee5349acbee9ed94ae13f1143b2f
+ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:22ffdf07c24af219a1fe493095c3293c480da4f3cdc04ccc167e65ae81d631ad
+```
+
+Registry credentials remain namespace-scoped. `platform-system/ghcr-pull` authenticates operator and API Pods; `applications/ghcr-pull` authenticates managed workload Pods. The production certificate writes its generated key pair to `platform-system/control-plane-api-tls`.
 
 ---
 
@@ -1193,7 +1204,7 @@ Exit criteria:
 Current status:
 
 ```text
-IN PROGRESS
+COMPLETE
 ```
 
 ---
@@ -1322,6 +1333,12 @@ Exit criteria:
 * rollback behaviour is tested
 * Argo CD is not unrestricted publicly
 
+Current status:
+
+```text
+COMPLETE
+```
+
 ---
 
 ### Phase H7 — Platform Deployment
@@ -1344,6 +1361,12 @@ Exit criteria:
 * child resources reconcile correctly
 * public API is authenticated and HTTPS-protected
 * drift correction works
+
+Current status:
+
+```text
+COMPLETE — validated 2026-07-20
+```
 
 ---
 
@@ -2106,29 +2129,23 @@ The following decisions are currently authoritative:
 * Local validation should precede public deployment.
 * Secrets must never be committed to Git.
 * No high-availability claim should be made for the initial environment.
+* The operator and API use separate least-privilege ServiceAccounts.
+* The control-plane API manages only `ManagedService` resources in `applications`.
+* Argo CD synchronization remains manual and Argo CD remains private.
+* Public API traffic uses production TLS, HTTPS redirection, and Traefik rate limiting.
+* Runtime images are selected by immutable SHA-256 digest.
 
 ---
 
 ## 48. Current Open Decisions
 
-The following decisions remain open:
+The following decisions remain open after H7:
 
-* exact Hetzner server type
-* exact Hetzner region
-* x86 versus ARM
-* exact Ubuntu LTS release
-* real domain and subdomain structure
-* DNS provider
-* HTTP-01 versus DNS-01 ACME validation
-* Kubernetes API access strategy
-* VPN versus source-IP restriction versus SSH tunnel
 * exact persistent-volume sizes
 * backup destination
-* Secret-management mechanism
+* longer-term Secret-management mechanism beyond manually managed Kubernetes Secrets
 * Prometheus versus Mimir for the first public deployment
 * Grafana public-access mechanism
-* Argo CD public-access mechanism
-* GitOps repository structure
 * observability retention periods
 * K3s upgrade strategy
 * VM snapshot policy
@@ -2142,27 +2159,19 @@ The simplest safe and reversible option should be preferred.
 
 ## 49. Immediate Next Infrastructure Step
 
-The next infrastructure planning task is:
+The next infrastructure phase is:
 
 ```text
-Phase H0, Slice H0.1 — Finalise initial VM sizing, region, domain assumptions, access model, and monthly cost.
+Phase H8 — Deploy a resource-bounded observability stack.
 ```
 
-The first implementation task after planning will be:
+Before enabling H8 components:
 
-```text
-Phase H1, Slice H1.1 — Create the Hetzner VM, SSH access, and minimal firewall without installing Kubernetes.
-```
-
-The VM should not be provisioned until the following are agreed:
-
-* server architecture
-* server size
-* Hetzner region
-* SSH public key
-* administrative source-IP strategy
-* initial firewall rules
-* estimated monthly cost
+* capture a fresh node and pod resource baseline;
+* account for the current approximately 66% memory use on the 4 GB node;
+* choose bounded retention and conservative requests/limits;
+* deploy one observability layer at a time;
+* keep telemetry receivers and dashboards private unless a separately reviewed access design is implemented.
 
 ---
 
