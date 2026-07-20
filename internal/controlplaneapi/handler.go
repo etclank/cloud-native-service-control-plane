@@ -50,6 +50,12 @@ const (
 	methodNotAllowedMessage = "method not allowed"
 	readinessStatusReady    = "ready"
 	readinessStatusNotReady = "not ready"
+	healthRoute             = "/healthz"
+	readinessRoute          = "/readyz"
+	apiV1Route              = "/api/v1"
+	managedServicesRoute    = "/api/v1/managed-services"
+	managedServiceItemRoute = "/api/v1/managed-services/{name}"
+	unknownRoute            = "unknown"
 )
 
 type statusResponse struct {
@@ -108,14 +114,14 @@ func NewHandler(
 		router:            http.NewServeMux(),
 	}
 
-	handler.router.HandleFunc("/healthz", getOnly(func(
+	handler.router.HandleFunc(healthRoute, getOnly(func(
 		writer http.ResponseWriter,
 		_ *http.Request,
 	) {
 		writeJSON(writer, http.StatusOK, statusResponse{Status: "healthy"})
 	}))
-	handler.router.HandleFunc("/readyz", getOnly(handler.serveReadiness))
-	handler.router.HandleFunc("/api/v1", getOnly(func(
+	handler.router.HandleFunc(readinessRoute, getOnly(handler.serveReadiness))
+	handler.router.HandleFunc(apiV1Route, getOnly(func(
 		writer http.ResponseWriter,
 		_ *http.Request,
 	) {
@@ -125,11 +131,11 @@ func NewHandler(
 		})
 	}))
 	handler.router.HandleFunc(
-		"/api/v1/managed-services",
+		managedServicesRoute,
 		handler.serveManagedServiceCollection,
 	)
 	handler.router.HandleFunc(
-		"/api/v1/managed-services/",
+		managedServicesRoute+"/",
 		handler.serveManagedService,
 	)
 	handler.router.HandleFunc("/", func(writer http.ResponseWriter, _ *http.Request) {
@@ -137,6 +143,22 @@ func NewHandler(
 	})
 
 	return handler
+}
+
+// NormalizeRoute maps API requests to bounded telemetry route templates.
+func NormalizeRoute(request *http.Request) string {
+	switch request.URL.Path {
+	case healthRoute, readinessRoute, apiV1Route, managedServicesRoute:
+		return request.URL.Path
+	}
+
+	const itemPrefix = managedServicesRoute + "/"
+	itemName := strings.TrimPrefix(request.URL.Path, itemPrefix)
+	if itemName != request.URL.Path && itemName != "" && !strings.Contains(itemName, "/") {
+		return managedServiceItemRoute
+	}
+
+	return unknownRoute
 }
 
 func (handler *apiHandler) serveManagedServiceCollection(
@@ -242,7 +264,7 @@ func (handler *apiHandler) serveManagedService(
 		return
 	}
 
-	name := strings.TrimPrefix(request.URL.Path, "/api/v1/managed-services/")
+	name := strings.TrimPrefix(request.URL.Path, managedServicesRoute+"/")
 	if !validManagedServiceName(name) {
 		writeJSON(
 			writer,
@@ -478,7 +500,7 @@ func (handler *apiHandler) authenticated(request *http.Request) bool {
 }
 
 func isProtectedPath(path string) bool {
-	return path == "/api/v1" || strings.HasPrefix(path, "/api/v1/")
+	return path == apiV1Route || strings.HasPrefix(path, apiV1Route+"/")
 }
 
 func getOnly(next http.HandlerFunc) http.HandlerFunc {

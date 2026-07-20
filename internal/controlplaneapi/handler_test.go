@@ -32,8 +32,8 @@ func TestPublicHealthEndpoints(t *testing.T) {
 		path       string
 		wantStatus string
 	}{
-		{path: "/healthz", wantStatus: "healthy"},
-		{path: "/readyz", wantStatus: readinessStatusReady},
+		{path: healthRoute, wantStatus: "healthy"},
+		{path: readinessRoute, wantStatus: readinessStatusReady},
 	}
 
 	for _, test := range tests {
@@ -54,7 +54,7 @@ func TestReadinessCheckCanReportUnavailable(t *testing.T) {
 	check := func(context.Context) error {
 		return errors.New("not connected")
 	}
-	response := apiRequest(t, NewHandler(testToken, nil, check), http.MethodGet, "/readyz", "")
+	response := apiRequest(t, NewHandler(testToken, nil, check), http.MethodGet, readinessRoute, "")
 	assertStatusCode(t, response, http.StatusServiceUnavailable)
 
 	var body statusResponse
@@ -69,7 +69,7 @@ func TestProtectedRouteAcceptsValidCredentials(t *testing.T) {
 		t,
 		NewHandler(testToken, nil, nil),
 		http.MethodGet,
-		"/api/v1",
+		apiV1Route,
 		"Bearer "+testToken,
 	)
 	assertStatusCode(t, response, http.StatusOK)
@@ -98,7 +98,7 @@ func TestProtectedRouteRejectsInvalidCredentials(t *testing.T) {
 				t,
 				NewHandler(testToken, nil, nil),
 				http.MethodGet,
-				"/api/v1",
+				apiV1Route,
 				test.authorization,
 			)
 			assertStatusCode(t, response, http.StatusUnauthorized)
@@ -120,7 +120,7 @@ func TestQueryParameterDoesNotAuthenticate(t *testing.T) {
 		t,
 		NewHandler(testToken, nil, nil),
 		http.MethodGet,
-		"/api/v1?token="+testToken,
+		apiV1Route+"?token="+testToken,
 		"",
 	)
 	assertStatusCode(t, response, http.StatusUnauthorized)
@@ -132,8 +132,8 @@ func TestUnsupportedMethodsReturnJSON(t *testing.T) {
 		path          string
 		authorization string
 	}{
-		{name: "public", path: "/healthz"},
-		{name: "protected", path: "/api/v1", authorization: "Bearer " + testToken},
+		{name: "public", path: healthRoute},
+		{name: "protected", path: apiV1Route, authorization: "Bearer " + testToken},
 	}
 
 	for _, test := range tests {
@@ -166,7 +166,7 @@ func TestUnknownPathsReturnJSON(t *testing.T) {
 		authorization string
 	}{
 		{name: "public", path: "/unknown"},
-		{name: "protected", path: "/api/v1/unknown", authorization: "Bearer " + testToken},
+		{name: "protected", path: apiV1Route + "/unknown", authorization: "Bearer " + testToken},
 	}
 
 	for _, test := range tests {
@@ -184,6 +184,42 @@ func TestUnknownPathsReturnJSON(t *testing.T) {
 			decodeJSONResponse(t, response, &body)
 			if body.Error != "not found" {
 				t.Errorf("error = %q", body.Error)
+			}
+		})
+	}
+}
+
+func TestPublicMetricsEndpointIsNotExposed(t *testing.T) {
+	response := apiRequest(
+		t,
+		NewHandler(testToken, nil, nil),
+		http.MethodGet,
+		"/metrics",
+		"",
+	)
+	assertStatusCode(t, response, http.StatusNotFound)
+}
+
+func TestNormalizeRoute(t *testing.T) {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{path: healthRoute, want: healthRoute},
+		{path: readinessRoute, want: readinessRoute},
+		{path: apiV1Route, want: apiV1Route},
+		{path: managedServicesRoute, want: managedServicesRoute},
+		{path: managedServicesRoute + "/example", want: managedServiceItemRoute},
+		{path: managedServicesRoute + "/customer-secret", want: managedServiceItemRoute},
+		{path: managedServicesRoute + "/example/extra", want: unknownRoute},
+		{path: "/raw/customer-secret", want: unknownRoute},
+	}
+
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, test.path+"?token=secret", nil)
+			if got := NormalizeRoute(request); got != test.want {
+				t.Errorf("NormalizeRoute(%q) = %q, want %q", test.path, got, test.want)
 			}
 		})
 	}

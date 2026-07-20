@@ -141,6 +141,44 @@ func TestParsePort(t *testing.T) {
 	}
 }
 
+func TestParseMetricsPort(t *testing.T) {
+	tests := []struct {
+		name       string
+		value      string
+		publicPort int
+		want       int
+		wantError  bool
+	}{
+		{name: "default", publicPort: DefaultPort, want: DefaultMetricsPort},
+		{name: "custom", value: "9191", publicPort: DefaultPort, want: 9191},
+		{name: "same as public", value: "8080", publicPort: DefaultPort, wantError: true},
+		{name: "default same as public", publicPort: DefaultMetricsPort, wantError: true},
+		{name: "zero", value: "0", publicPort: DefaultPort, wantError: true},
+		{name: "negative", value: "-1", publicPort: DefaultPort, wantError: true},
+		{name: "too large", value: "65536", publicPort: DefaultPort, wantError: true},
+		{name: "non-numeric", value: "metrics", publicPort: DefaultPort, wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			port, err := ParseMetricsPort(test.value, test.publicPort)
+			if test.wantError {
+				if err == nil {
+					t.Fatalf("ParseMetricsPort(%q, %d) returned no error", test.value, test.publicPort)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseMetricsPort(%q, %d) error = %v", test.value, test.publicPort, err)
+			}
+			if port != test.want {
+				t.Errorf("ParseMetricsPort(%q, %d) = %d, want %d", test.value, test.publicPort, port, test.want)
+			}
+		})
+	}
+}
+
 func writeTokenFile(t *testing.T, contents string) string {
 	t.Helper()
 

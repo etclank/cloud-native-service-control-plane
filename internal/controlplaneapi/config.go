@@ -28,6 +28,8 @@ import (
 const (
 	// DefaultPort is used when PORT is not configured.
 	DefaultPort = 8080
+	// DefaultMetricsPort is used when METRICS_PORT is not configured.
+	DefaultMetricsPort = 9090
 	// MinimumTokenLength is the minimum accepted API bearer token length.
 	MinimumTokenLength = 32
 )
@@ -75,6 +77,27 @@ func ParsePort(value string) (int, error) {
 	}
 
 	return port, nil
+}
+
+// ParseMetricsPort parses METRICS_PORT and ensures the internal listener does
+// not share the public API port.
+func ParseMetricsPort(value string, publicPort int) (int, error) {
+	metricsPort := DefaultMetricsPort
+	if value != "" {
+		parsedPort, err := strconv.Atoi(value)
+		if err != nil || parsedPort < 1 || parsedPort > 65535 {
+			return 0, fmt.Errorf(
+				"METRICS_PORT must be an integer between 1 and 65535: %q",
+				value,
+			)
+		}
+		metricsPort = parsedPort
+	}
+	if metricsPort == publicPort {
+		return 0, fmt.Errorf("METRICS_PORT must differ from PORT")
+	}
+
+	return metricsPort, nil
 }
 
 func trimTrailingLineEnding(contents []byte) []byte {
