@@ -5,6 +5,7 @@ on:
     paths:
       - cmd/demo-http/**
       - internal/demohttp/**
+      - internal/telemetry/**
       - images/demo-http/Dockerfile
       - go.mod
       - go.sum
@@ -13,6 +14,7 @@ on:
     paths:
       - cmd/demo-http/**
       - internal/demohttp/**
+      - internal/telemetry/**
       - images/demo-http/Dockerfile
       - go.mod
       - go.sum

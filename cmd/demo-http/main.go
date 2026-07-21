@@ -27,12 +27,20 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/etclank/cloud-native-service-control-plane/internal/demohttp"
+	"github.com/etclank/cloud-native-service-control-plane/internal/telemetry"
 )
 
-const shutdownTimeout = 10 * time.Second
+const (
+	shutdownTimeout = 10 * time.Second
+	maxHeaderBytes  = 16 << 10
+)
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
 	if err := run(); err != nil {
 		slog.Error("Demo HTTP server failed", "error", err)
 		os.Exit(1)
@@ -44,6 +52,24 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("configure server: %w", err)
 	}
+	metricsPort, err := demohttp.ParseMetricsPort(os.Getenv("METRICS_PORT"), port)
+	if err != nil {
+		return fmt.Errorf("configure metrics server: %w", err)
+	}
+
+	registry := prometheus.NewRegistry()
+	httpMetrics, err := telemetry.NewHTTPMetrics(registry, demohttp.ServiceName)
+	if err != nil {
+		return fmt.Errorf("configure HTTP metrics: %w", err)
+	}
+	traceConfig := telemetry.TraceConfigFromEnvironment()
+	if traceConfig.ServiceName == "" {
+		traceConfig.ServiceName = demohttp.ServiceName
+	}
+	traceRuntime, err := telemetry.NewTraceRuntime(context.Background(), traceConfig)
+	if err != nil {
+		return fmt.Errorf("configure tracing: %w", err)
+	}
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
@@ -52,48 +78,47 @@ func run() error {
 	)
 	defer stop()
 
-	server := &http.Server{
+	publicHandler := telemetry.NewHTTPHandler(
+		demohttp.NewHandler(os.Getenv("MESSAGE")),
+		telemetry.HTTPHandlerOptions{
+			ServiceName:     demohttp.ServiceName,
+			Logger:          slog.Default(),
+			Metrics:         httpMetrics,
+			RouteNormalizer: demohttp.NormalizeRoute,
+			TracerProvider:  traceRuntime.Provider,
+			Propagators:     traceRuntime.Propagators,
+		},
+	)
+	publicServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),
-		Handler:           demohttp.NewHandler(os.Getenv("MESSAGE")),
+		Handler:           publicHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    maxHeaderBytes,
+	}
+	metricsServer := telemetry.NewMetricsServer(
+		fmt.Sprintf(":%d", metricsPort),
+		registry,
+	)
+
+	serveErr := telemetry.ServeUntilShutdown(
+		ctx,
+		slog.Default(),
+		shutdownTimeout,
+		telemetry.NamedServer{Name: "public demo", Server: publicServer},
+		telemetry.NamedServer{Name: "internal metrics", Server: metricsServer},
+	)
+
+	traceShutdownCtx, cancelTraceShutdown := context.WithTimeout(
+		context.Background(),
+		shutdownTimeout,
+	)
+	defer cancelTraceShutdown()
+	if err := traceRuntime.Shutdown(traceShutdownCtx); err != nil {
+		serveErr = errors.Join(serveErr, fmt.Errorf("shut down tracing: %w", err))
 	}
 
-	serverErrors := make(chan error, 1)
-	slog.Info("Starting demo HTTP server", "address", server.Addr)
-	go func() {
-		serverErrors <- server.ListenAndServe()
-	}()
-
-	select {
-	case err := <-serverErrors:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("serve HTTP: %w", err)
-		}
-
-		return nil
-	case <-ctx.Done():
-		slog.Info("Shutting down demo HTTP server")
-
-		shutdownCtx, cancel := context.WithTimeout(
-			context.Background(),
-			shutdownTimeout,
-		)
-		defer cancel()
-
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("shut down HTTP server: %w", err)
-		}
-
-		if err := <-serverErrors; err != nil &&
-			!errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("serve HTTP: %w", err)
-		}
-
-		slog.Info("Demo HTTP server stopped")
-
-		return nil
-	}
+	return serveErr
 }

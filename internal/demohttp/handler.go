@@ -23,13 +23,24 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+
+	"github.com/etclank/cloud-native-service-control-plane/internal/telemetry"
 )
 
 const (
+	// ServiceName is the stable identity used in responses and telemetry.
+	ServiceName = "demo-http"
 	// DefaultMessage is returned when MESSAGE is not configured.
 	DefaultMessage = "Hello from a ManagedService"
 	// DefaultPort is used when PORT is not configured.
 	DefaultPort = 8080
+	// DefaultMetricsPort is used when METRICS_PORT is not configured.
+	DefaultMetricsPort = telemetry.DefaultMetricsPort
+
+	rootRoute      = "/"
+	healthRoute    = "/healthz"
+	readinessRoute = "/readyz"
+	unknownRoute   = "unknown"
 )
 
 type rootResponse struct {
@@ -50,7 +61,7 @@ func NewHandler(message string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(writer http.ResponseWriter, _ *http.Request) {
 		writeJSON(writer, http.StatusOK, rootResponse{
-			Service: "demo-http",
+			Service: ServiceName,
 			Message: message,
 		})
 	})
@@ -62,6 +73,16 @@ func NewHandler(message string) http.Handler {
 	})
 
 	return mux
+}
+
+// NormalizeRoute maps demo requests to bounded telemetry route names.
+func NormalizeRoute(request *http.Request) string {
+	switch request.URL.Path {
+	case rootRoute, healthRoute, readinessRoute:
+		return request.URL.Path
+	default:
+		return unknownRoute
+	}
 }
 
 // ParsePort parses PORT, applying the default when the value is empty.
@@ -79,6 +100,11 @@ func ParsePort(value string) (int, error) {
 	}
 
 	return port, nil
+}
+
+// ParseMetricsPort validates the separate internal metrics listener port.
+func ParseMetricsPort(value string, publicPort int) (int, error) {
+	return telemetry.ParseMetricsPort(value, publicPort)
 }
 
 func writeJSON(writer http.ResponseWriter, statusCode int, response any) {
