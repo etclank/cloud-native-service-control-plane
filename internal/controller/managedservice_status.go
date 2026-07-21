@@ -178,6 +178,10 @@ func (r *ManagedServiceReconciler) patchManagedServiceStatus(
 	); err != nil {
 		return fmt.Errorf("patch ManagedService status: %w", err)
 	}
+	r.Metrics.observeConditionTransitions(
+		before.Status.Conditions,
+		managedService.Status.Conditions,
+	)
 
 	return nil
 }
