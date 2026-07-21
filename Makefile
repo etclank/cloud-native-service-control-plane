@@ -60,7 +60,7 @@ vet: ## Run go vet against code.
 	go vet ./...
 
 .PHONY: test
-test: manifests generate fmt vet setup-envtest kustomize ## Run tests.
+test: manifests generate fmt vet setup-envtest kustomize observability-dependencies ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
@@ -193,6 +193,8 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+HELM ?= $(LOCALBIN)/helm
+ARGOCD_HELM ?= $(LOCALBIN)/helm-argocd
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
@@ -209,6 +211,55 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
 GOLANGCI_LINT_VERSION ?= v2.12.2
+HELM_VERSION ?= v3.21.1
+HELM_LINUX_AMD64_SHA256 ?= a349c62d6ab2d5d11f044fc0d3afa6deed7d27cc7d5c351f536b169d9fc2cc1a
+# Argo CD v3.4.5 pins Helm 3.19.4 in its official hack/tool-versions.sh.
+ARGOCD_HELM_VERSION ?= v3.19.4
+ARGOCD_HELM_LINUX_AMD64_SHA256 ?= 759c656fbd9c11e6a47784ecbeac6ad1eb16a9e76d202e51163ab78504848862
+OTEL_COLLECTOR_CHART_SHA256 ?= b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5
+OTEL_COLLECTOR_CHART_ARCHIVE ?= deploy/observability/charts/opentelemetry-collector-0.165.0.tgz
+OTEL_COLLECTOR_CHART_REPOSITORY ?= https://open-telemetry.github.io/opentelemetry-helm-charts
+
+.PHONY: observability-dependencies
+observability-dependencies: helm ## Download and verify the locked observability chart dependency.
+	@repository_config="$$(mktemp)"; repository_cache="$$(mktemp -d)"; \
+	trap 'rm -f "$$repository_config"; rm -r -- "$$repository_cache"' EXIT; \
+	"$(HELM)" repo add opentelemetry "$(OTEL_COLLECTOR_CHART_REPOSITORY)" \
+		--repository-config "$$repository_config" --repository-cache "$$repository_cache"; \
+	"$(HELM)" dependency build deploy/observability \
+		--repository-config "$$repository_config" --repository-cache "$$repository_cache"
+	printf '%s  %s\n' "$(OTEL_COLLECTOR_CHART_SHA256)" "$(OTEL_COLLECTOR_CHART_ARCHIVE)" | sha256sum --check
+
+.PHONY: observability-render
+observability-render: observability-dependencies ## Render observability resources without Kubernetes API discovery.
+	"$(HELM)" template observability deploy/observability --namespace observability
+
+.PHONY: observability-validate
+observability-validate: observability-dependencies argocd-helm ## Validate the Collector package and Argo CD Helm compatibility.
+	"$(HELM)" lint deploy/observability
+	@current_render="$$(mktemp)"; repeated_render="$$(mktemp)"; argo_render="$$(mktemp)"; \
+	trap 'rm -f "$$current_render" "$$repeated_render" "$$argo_render"' EXIT; \
+	"$(HELM)" template observability deploy/observability --namespace observability > "$$current_render"; \
+	"$(HELM)" template observability deploy/observability --namespace observability > "$$repeated_render"; \
+	"$(ARGOCD_HELM)" template observability deploy/observability --namespace observability > "$$argo_render"; \
+	cmp "$$current_render" "$$repeated_render"; \
+	cmp "$$current_render" "$$argo_render"; \
+	go test -v ./internal/observability
+
+.PHONY: helm
+helm: $(HELM) ## Download the pinned Helm used for repository validation.
+	@test "$$($(HELM) version --template '{{.Version}}')" = "$(HELM_VERSION)"
+
+$(HELM): $(LOCALBIN)
+	$(call install-helm,$(HELM),$(HELM_VERSION),$(HELM_LINUX_AMD64_SHA256))
+
+.PHONY: argocd-helm
+argocd-helm: $(ARGOCD_HELM) ## Download the Helm version bundled with Argo CD v3.4.5.
+	@test "$$($(ARGOCD_HELM) version --template '{{.Version}}')" = "$(ARGOCD_HELM_VERSION)"
+
+$(ARGOCD_HELM): $(LOCALBIN)
+	$(call install-helm,$(ARGOCD_HELM),$(ARGOCD_HELM_VERSION),$(ARGOCD_HELM_LINUX_AMD64_SHA256))
+
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
@@ -256,6 +307,25 @@ GOBIN="$(LOCALBIN)" go install $${package} ;\
 mv "$(LOCALBIN)/$$(basename "$(1)")" "$(1)-$(3)" ;\
 } ;\
 ln -sf "$$(realpath "$(1)-$(3)")" "$(1)"
+endef
+
+# install-helm downloads an official Helm release and verifies it before use.
+# $1 is the output binary, $2 is the v-prefixed version, and $3 is the archive SHA-256.
+define install-helm
+@set -e; \
+version="$(2)"; \
+versioned_binary="$(1)-$${version}"; \
+if [ ! -x "$$versioned_binary" ] || [ "$$($$versioned_binary version --template '{{.Version}}')" != "$$version" ]; then \
+	tmp_dir="$$(mktemp -d)"; \
+	trap 'rm -r -- "$$tmp_dir"' EXIT; \
+	archive="helm-$${version}-linux-amd64.tar.gz"; \
+	curl --fail --silent --show-error --location \
+		"https://get.helm.sh/$${archive}" --output "$$tmp_dir/$${archive}"; \
+	printf '%s  %s\n' "$(3)" "$$tmp_dir/$${archive}" | sha256sum --check; \
+	tar -xzf "$$tmp_dir/$${archive}" -C "$$tmp_dir"; \
+	mv "$$tmp_dir/linux-amd64/helm" "$$versioned_binary"; \
+fi; \
+ln -sfn "$$(realpath "$$versioned_binary")" "$(1)"
 endef
 
 define gomodver

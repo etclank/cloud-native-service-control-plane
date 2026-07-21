@@ -37,6 +37,9 @@ dist/
 coverage/
 *.out
 
+# Helm dependency archives are downloaded and checksum-verified locally.
+deploy/observability/charts/
+
 # Temporary files
 *.tmp
 *.swp
