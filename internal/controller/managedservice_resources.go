@@ -34,9 +34,11 @@ import (
 )
 
 const (
-	managedServiceContainerName = "demo-http"
-	managedServiceContainerPort = int32(8080)
-	managedServiceServicePort   = int32(80)
+	managedServiceContainerName        = "demo-http"
+	managedServiceContainerPort        = int32(8080)
+	managedServiceHTTPPortName         = "http"
+	managedServiceMetricsContainerPort = int32(9090)
+	managedServiceServicePort          = int32(80)
 )
 
 func validateImmutableImage(image string) error {
@@ -155,8 +157,13 @@ func (r *ManagedServiceReconciler) reconcileDeployment(
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Ports: []corev1.ContainerPort{
 							{
-								Name:          "http",
+								Name:          managedServiceHTTPPortName,
 								ContainerPort: managedServiceContainerPort,
+								Protocol:      corev1.ProtocolTCP,
+							},
+							{
+								Name:          "metrics",
+								ContainerPort: managedServiceMetricsContainerPort,
 								Protocol:      corev1.ProtocolTCP,
 							},
 						},
@@ -164,6 +171,14 @@ func (r *ManagedServiceReconciler) reconcileDeployment(
 							{
 								Name:  "MESSAGE",
 								Value: managedService.Spec.Message,
+							},
+							{
+								Name:  "METRICS_PORT",
+								Value: "9090",
+							},
+							{
+								Name:  "OTEL_SERVICE_NAME",
+								Value: "demo-http",
 							},
 						},
 						Resources: corev1.ResourceRequirements{
@@ -225,7 +240,7 @@ func managedServiceHTTPProbe(
 		ProbeHandler: corev1.ProbeHandler{
 			HTTPGet: &corev1.HTTPGetAction{
 				Path:   path,
-				Port:   intstr.FromString("http"),
+				Port:   intstr.FromString(managedServiceHTTPPortName),
 				Scheme: corev1.URISchemeHTTP,
 			},
 		},
@@ -270,10 +285,10 @@ func (r *ManagedServiceReconciler) reconcileService(
 				managedServiceSelector(managedService)
 			service.Spec.Ports = []corev1.ServicePort{
 				{
-					Name:       "http",
+					Name:       managedServiceHTTPPortName,
 					Port:       managedServiceServicePort,
 					Protocol:   corev1.ProtocolTCP,
-					TargetPort: intstr.FromString("http"),
+					TargetPort: intstr.FromString(managedServiceHTTPPortName),
 				},
 			}
 

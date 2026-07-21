@@ -92,8 +92,39 @@ var _ = Describe("ManagedService child reconciliation", func() {
 			Name:  "MESSAGE",
 			Value: reconciliationTestMessage,
 		}))
+		Expect(container.Env).To(ContainElement(corev1.EnvVar{
+			Name:  "METRICS_PORT",
+			Value: "9090",
+		}))
+		Expect(container.Env).To(ContainElement(corev1.EnvVar{
+			Name:  "OTEL_SERVICE_NAME",
+			Value: "demo-http",
+		}))
+		for _, variable := range container.Env {
+			Expect(variable.Name).NotTo(HavePrefix("OTEL_EXPORTER_OTLP"))
+		}
+		Expect(container.Ports).To(Equal([]corev1.ContainerPort{
+			{
+				Name:          managedServiceHTTPPortName,
+				ContainerPort: 8080,
+				Protocol:      corev1.ProtocolTCP,
+			},
+			{
+				Name:          "metrics",
+				ContainerPort: 9090,
+				Protocol:      corev1.ProtocolTCP,
+			},
+		}))
 		Expect(container.ReadinessProbe).NotTo(BeNil())
 		Expect(container.LivenessProbe).NotTo(BeNil())
+		Expect(container.ReadinessProbe.HTTPGet).NotTo(BeNil())
+		Expect(
+			container.ReadinessProbe.HTTPGet.Port.String(),
+		).To(Equal(managedServiceHTTPPortName))
+		Expect(container.LivenessProbe.HTTPGet).NotTo(BeNil())
+		Expect(
+			container.LivenessProbe.HTTPGet.Port.String(),
+		).To(Equal(managedServiceHTTPPortName))
 		Expect(container.SecurityContext).NotTo(BeNil())
 		Expect(
 			container.SecurityContext.AllowPrivilegeEscalation,
@@ -125,8 +156,9 @@ var _ = Describe("ManagedService child reconciliation", func() {
 		)).To(BeTrue())
 		Expect(service.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
 		Expect(service.Spec.Ports).To(HaveLen(1))
+		Expect(service.Spec.Ports[0].Name).To(Equal(managedServiceHTTPPortName))
 		Expect(service.Spec.Ports[0].Port).To(Equal(int32(80)))
-		Expect(service.Spec.Ports[0].TargetPort.String()).To(Equal("http"))
+		Expect(service.Spec.Ports[0].TargetPort.String()).To(Equal(managedServiceHTTPPortName))
 
 		deploymentResourceVersion := deployment.ResourceVersion
 		serviceResourceVersion := service.ResourceVersion

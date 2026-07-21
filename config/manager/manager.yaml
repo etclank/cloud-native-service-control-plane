@@ -65,7 +65,7 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
-          - --demo-http-image=ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:2d1fc30e0cf75ba9fbe96af176f770524377ee5349acbee9ed94ae13f1143b2f
+          - --demo-http-image=ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:bf9a75e48c4cbe2a14be4c61339115b76c2af11a06bfcc1b560f52ff3ed46e9e
           - --managed-service-image-pull-secret=ghcr-pull
         image: controller:latest
         name: manager

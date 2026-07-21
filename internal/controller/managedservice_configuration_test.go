@@ -36,7 +36,7 @@ import (
 const (
 	platformSystemNamespace = "platform-system"
 	approvedDemoHTTPImage   = "ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:" +
-		"2d1fc30e0cf75ba9fbe96af176f770524377ee5349acbee9ed94ae13f1143b2f"
+		"bf9a75e48c4cbe2a14be4c61339115b76c2af11a06bfcc1b560f52ff3ed46e9e"
 	approvedImagePullSecret    = "ghcr-pull"
 	approvedOperatorRepository = "ghcr.io/etclank/cloud-native-service-control-plane-operator"
 	approvedOperatorImage      = approvedOperatorRepository + "@sha256:" +
@@ -103,6 +103,15 @@ func TestRenderedManagerConfiguration(t *testing.T) {
 			"image pull Secret argument count = %d, want 1",
 			arguments[wantPullSecretArgument],
 		)
+	}
+	if arguments["--metrics-bind-address=:8443"] != 1 {
+		t.Errorf(
+			"authenticated metrics listener argument count = %d, want 1",
+			arguments["--metrics-bind-address=:8443"],
+		)
+	}
+	if arguments["--metrics-secure=false"] != 0 {
+		t.Error("manager disables metrics endpoint authentication")
 	}
 
 	for _, argument := range manager.Args {
