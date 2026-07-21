@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -47,11 +46,6 @@ const (
 type serverSpec struct {
 	name   string
 	server *http.Server
-}
-
-type serverResult struct {
-	name string
-	err  error
 }
 
 func main() {
@@ -163,67 +157,18 @@ func run() error {
 }
 
 func serveUntilShutdown(ctx context.Context, servers []serverSpec) error {
-	listeners := make([]net.Listener, 0, len(servers))
+	sharedServers := make([]telemetry.NamedServer, 0, len(servers))
 	for _, spec := range servers {
-		listener, err := net.Listen("tcp", spec.server.Addr)
-		if err != nil {
-			for _, openListener := range listeners {
-				_ = openListener.Close()
-			}
-
-			return fmt.Errorf("listen for %s HTTP: %w", spec.name, err)
-		}
-		listeners = append(listeners, listener)
+		sharedServers = append(sharedServers, telemetry.NamedServer{
+			Name:   spec.name,
+			Server: spec.server,
+		})
 	}
 
-	results := make(chan serverResult, len(servers))
-	for index, spec := range servers {
-		slog.Info(
-			"Starting HTTP server",
-			"server", spec.name,
-			"address", listeners[index].Addr().String(),
-		)
-		listener := listeners[index]
-		go func() {
-			results <- serverResult{name: spec.name, err: spec.server.Serve(listener)}
-		}()
-	}
-
-	received := 0
-	var resultErr error
-	select {
-	case result := <-results:
-		received++
-		if result.err != nil && !errors.Is(result.err, http.ErrServerClosed) {
-			resultErr = fmt.Errorf("serve %s HTTP: %w", result.name, result.err)
-		} else if ctx.Err() == nil {
-			resultErr = fmt.Errorf("%s HTTP server stopped unexpectedly", result.name)
-		}
-	case <-ctx.Done():
-		slog.Info("Shutting down HTTP servers")
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-	for _, spec := range servers {
-		if err := spec.server.Shutdown(shutdownCtx); err != nil {
-			resultErr = errors.Join(
-				resultErr,
-				fmt.Errorf("shut down %s HTTP server: %w", spec.name, err),
-			)
-		}
-	}
-	for received < len(servers) {
-		result := <-results
-		received++
-		if result.err != nil && !errors.Is(result.err, http.ErrServerClosed) {
-			resultErr = errors.Join(
-				resultErr,
-				fmt.Errorf("serve %s HTTP: %w", result.name, result.err),
-			)
-		}
-	}
-	slog.Info("HTTP servers stopped")
-
-	return resultErr
+	return telemetry.ServeUntilShutdown(
+		ctx,
+		slog.Default(),
+		shutdownTimeout,
+		sharedServers...,
+	)
 }
