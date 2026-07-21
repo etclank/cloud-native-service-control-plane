@@ -5,9 +5,11 @@ on:
     branches:
       - main
       - h7-platform-foundation
+      - h8-observability-foundation
     paths:
       - cmd/control-plane-api/**
       - internal/controlplaneapi/**
+      - internal/telemetry/**
       - api/**
       - go.mod
       - go.sum
@@ -17,6 +19,7 @@ on:
     paths:
       - cmd/control-plane-api/**
       - internal/controlplaneapi/**
+      - internal/telemetry/**
       - api/**
       - go.mod
       - go.sum

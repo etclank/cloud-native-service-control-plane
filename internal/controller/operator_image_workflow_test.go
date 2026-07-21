@@ -24,7 +24,10 @@ import (
 	"testing"
 )
 
-const operatorImageName = "ghcr.io/etclank/cloud-native-service-control-plane-operator"
+const (
+	operatorImageName = "ghcr.io/etclank/cloud-native-service-control-plane-operator"
+	mainBranch        = "main"
+)
 
 func TestOperatorImageWorkflow(t *testing.T) {
 	workflowPath := filepath.Join(
@@ -50,6 +53,37 @@ func TestOperatorImageWorkflow(t *testing.T) {
 	for _, value := range required {
 		if !strings.Contains(workflow, value) {
 			t.Errorf("operator image workflow does not contain %q", value)
+		}
+	}
+
+	for _, path := range []string{
+		"cmd/main.go",
+		"internal/controller/**",
+		"internal/telemetry/**",
+		"api/**",
+		"go.mod",
+		"go.sum",
+		"Dockerfile",
+		".github/workflows/operator-image.yml",
+	} {
+		if strings.Count(workflow, "- "+path) != 2 {
+			t.Errorf("workflow path %q is not present in push and pull request triggers", path)
+		}
+	}
+
+	pushStart := strings.Index(workflow, "  push:\n")
+	pullRequestStart := strings.Index(workflow, "  pull_request:\n")
+	if pushStart < 0 || pullRequestStart < 0 || pullRequestStart <= pushStart {
+		t.Fatal("operator workflow push trigger could not be isolated")
+	}
+	pushTrigger := workflow[pushStart:pullRequestStart]
+	for _, branch := range []string{
+		mainBranch,
+		"h7-platform-foundation",
+		"h8-observability-foundation",
+	} {
+		if !strings.Contains(pushTrigger, "      - "+branch+"\n") {
+			t.Errorf("operator image push trigger does not include branch %q", branch)
 		}
 	}
 
