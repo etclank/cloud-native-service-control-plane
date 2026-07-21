@@ -34,11 +34,14 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -46,9 +49,16 @@ const (
 	collectorChartRepository = "https://open-telemetry.github.io/opentelemetry-helm-charts"
 	collectorChartVersion    = "0.165.0"
 	collectorAppVersion      = "0.156.0"
+	wrapperChartVersion      = "0.2.0"
 	collectorChartSHA256     = "b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5"
 	collectorResourceName    = "opentelemetry-collector-agent"
 	collectorOTLPReceiver    = "otlp"
+	defaultDenyPolicyName    = "observability-default-deny"
+	otlpIngressPolicyName    = "opentelemetry-collector-otlp-ingress"
+	namespaceKind            = "Namespace"
+	networkPolicyKind        = "NetworkPolicy"
+	applicationNameLabel     = "app.kubernetes.io/name"
+	podSecurityVersion       = "v1.36"
 	collectorImage           = "ghcr.io/open-telemetry/opentelemetry-collector-releases/" +
 		"opentelemetry-collector-k8s@sha256:" +
 		"aa4509d8d72195c8576227fb33932788bc368fb0e81f6520f332130139236b91"
@@ -98,7 +108,7 @@ func TestCollectorSupplyChain(t *testing.T) {
 		Repository: collectorChartRepository,
 		Version:    collectorChartVersion,
 	}
-	if chart.APIVersion != "v2" || chart.Name == "" || chart.Version == "" ||
+	if chart.APIVersion != "v2" || chart.Name == "" || chart.Version != wrapperChartVersion ||
 		!reflect.DeepEqual(chart.Dependencies, []chartDependency{wantDependency}) {
 		t.Errorf("wrapper Chart metadata = %#v", chart)
 	}
@@ -160,6 +170,15 @@ func TestRenderedCollectorPackage(t *testing.T) {
 	resources := renderCollectorResources(t)
 	wantInventory := map[objectKey]struct{}{
 		{
+			Kind: namespaceKind,
+			Name: observabilityNamespace,
+		}: {},
+		{
+			Kind:      "ServiceAccount",
+			Namespace: observabilityNamespace,
+			Name:      collectorChartName,
+		}: {},
+		{
 			Kind:      "ConfigMap",
 			Namespace: observabilityNamespace,
 			Name:      collectorResourceName,
@@ -169,6 +188,21 @@ func TestRenderedCollectorPackage(t *testing.T) {
 			Namespace: observabilityNamespace,
 			Name:      collectorResourceName,
 		}: {},
+		{
+			Kind:      "Service",
+			Namespace: observabilityNamespace,
+			Name:      collectorChartName,
+		}: {},
+		{
+			Kind:      networkPolicyKind,
+			Namespace: observabilityNamespace,
+			Name:      defaultDenyPolicyName,
+		}: {},
+		{
+			Kind:      networkPolicyKind,
+			Namespace: observabilityNamespace,
+			Name:      otlpIngressPolicyName,
+		}: {},
 	}
 	gotInventory := make(map[objectKey]struct{}, len(resources))
 	for key := range resources {
@@ -177,7 +211,23 @@ func TestRenderedCollectorPackage(t *testing.T) {
 	if !reflect.DeepEqual(gotInventory, wantInventory) {
 		t.Fatalf("rendered object inventory = %#v, want %#v", gotInventory, wantInventory)
 	}
-	t.Log("Rendered object inventory: ConfigMap/opentelemetry-collector-agent, DaemonSet/opentelemetry-collector-agent")
+	assertObjectNamespaces(t, resources)
+	t.Log("Rendered object inventory: Namespace, ServiceAccount, ConfigMap, Service, DaemonSet, and two NetworkPolicies")
+
+	namespace := &corev1.Namespace{}
+	convertResource(t, resources, objectKey{
+		Kind: namespaceKind,
+		Name: observabilityNamespace,
+	}, namespace)
+	assertObservabilityNamespace(t, namespace)
+
+	serviceAccount := &corev1.ServiceAccount{}
+	convertResource(t, resources, objectKey{
+		Kind:      "ServiceAccount",
+		Namespace: observabilityNamespace,
+		Name:      collectorChartName,
+	}, serviceAccount)
+	assertCollectorServiceAccount(t, serviceAccount)
 
 	configMap := &corev1.ConfigMap{}
 	convertResource(t, resources, objectKey{
@@ -194,6 +244,210 @@ func TestRenderedCollectorPackage(t *testing.T) {
 		Name:      collectorResourceName,
 	}, daemonSet)
 	assertCollectorDaemonSet(t, daemonSet)
+
+	service := &corev1.Service{}
+	convertResource(t, resources, objectKey{
+		Kind:      "Service",
+		Namespace: observabilityNamespace,
+		Name:      collectorChartName,
+	}, service)
+	assertCollectorService(t, service, daemonSet)
+
+	defaultDeny := &networkingv1.NetworkPolicy{}
+	convertResource(t, resources, objectKey{
+		Kind:      networkPolicyKind,
+		Namespace: observabilityNamespace,
+		Name:      defaultDenyPolicyName,
+	}, defaultDeny)
+	assertDefaultDenyPolicy(t, defaultDeny)
+
+	otlpIngress := &networkingv1.NetworkPolicy{}
+	convertResource(t, resources, objectKey{
+		Kind:      networkPolicyKind,
+		Namespace: observabilityNamespace,
+		Name:      otlpIngressPolicyName,
+	}, otlpIngress)
+	assertOTLPIngressPolicy(t, otlpIngress, daemonSet)
+}
+
+func assertObjectNamespaces(
+	t *testing.T,
+	resources map[objectKey]*unstructured.Unstructured,
+) {
+	t.Helper()
+
+	for key, object := range resources {
+		if key.Kind == namespaceKind {
+			if object.GetNamespace() != "" {
+				t.Errorf("Namespace object has namespace %q", object.GetNamespace())
+			}
+			continue
+		}
+		if object.GetNamespace() != observabilityNamespace {
+			t.Errorf("rendered object %#v has namespace %q", key, object.GetNamespace())
+		}
+	}
+}
+
+func assertObservabilityNamespace(t *testing.T, namespace *corev1.Namespace) {
+	t.Helper()
+
+	wantLabels := map[string]string{
+		applicationNameLabel:                         observabilityNamespace,
+		"app.kubernetes.io/part-of":                  "cloud-native-service-control-plane",
+		"pod-security.kubernetes.io/enforce":         "baseline",
+		"pod-security.kubernetes.io/enforce-version": podSecurityVersion,
+		"pod-security.kubernetes.io/audit":           "restricted",
+		"pod-security.kubernetes.io/audit-version":   podSecurityVersion,
+		"pod-security.kubernetes.io/warn":            "restricted",
+		"pod-security.kubernetes.io/warn-version":    podSecurityVersion,
+	}
+	if namespace.Name != observabilityNamespace ||
+		!reflect.DeepEqual(namespace.Labels, wantLabels) {
+		t.Errorf("observability Namespace = %#v", namespace)
+	}
+}
+
+func assertCollectorServiceAccount(
+	t *testing.T,
+	serviceAccount *corev1.ServiceAccount,
+) {
+	t.Helper()
+
+	if serviceAccount.Name != collectorChartName ||
+		serviceAccount.AutomountServiceAccountToken == nil ||
+		*serviceAccount.AutomountServiceAccountToken {
+		t.Errorf("Collector ServiceAccount = %#v", serviceAccount)
+	}
+}
+
+func assertCollectorService(
+	t *testing.T,
+	service *corev1.Service,
+	daemonSet *appsv1.DaemonSet,
+) {
+	t.Helper()
+
+	wantPorts := []corev1.ServicePort{
+		{
+			Name:       collectorOTLPReceiver,
+			Protocol:   corev1.ProtocolTCP,
+			Port:       4317,
+			TargetPort: intstr.FromString(collectorOTLPReceiver),
+		},
+		{
+			Name:       "otlp-http",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       4318,
+			TargetPort: intstr.FromString("otlp-http"),
+		},
+	}
+	if service.Spec.Type != corev1.ServiceTypeClusterIP ||
+		service.Spec.InternalTrafficPolicy == nil ||
+		*service.Spec.InternalTrafficPolicy != corev1.ServiceInternalTrafficPolicyCluster ||
+		!reflect.DeepEqual(service.Spec.Ports, wantPorts) {
+		t.Errorf("Collector Service network contract = %#v", service.Spec)
+	}
+	if !reflect.DeepEqual(service.Spec.Selector, daemonSet.Spec.Template.Labels) {
+		t.Errorf(
+			"Collector Service selector = %#v, Pod labels = %#v",
+			service.Spec.Selector,
+			daemonSet.Spec.Template.Labels,
+		)
+	}
+	if service.Spec.ExternalName != "" || len(service.Spec.ExternalIPs) != 0 ||
+		service.Spec.LoadBalancerIP != "" || len(service.Spec.LoadBalancerSourceRanges) != 0 ||
+		service.Spec.HealthCheckNodePort != 0 {
+		t.Errorf("Collector Service has public exposure fields: %#v", service.Spec)
+	}
+	for _, port := range service.Spec.Ports {
+		if port.NodePort != 0 || !containerHasNamedPort(
+			daemonSet.Spec.Template.Spec.Containers[0],
+			port.TargetPort.StrVal,
+			port.Port,
+		) {
+			t.Errorf("Collector Service port does not resolve to a named Pod port: %#v", port)
+		}
+	}
+}
+
+func containerHasNamedPort(container corev1.Container, name string, port int32) bool {
+	for _, containerPort := range container.Ports {
+		if containerPort.Name == name && containerPort.ContainerPort == port &&
+			containerPort.Protocol == corev1.ProtocolTCP {
+			return true
+		}
+	}
+
+	return false
+}
+
+func assertDefaultDenyPolicy(t *testing.T, policy *networkingv1.NetworkPolicy) {
+	t.Helper()
+
+	wantSpec := networkingv1.NetworkPolicySpec{
+		PodSelector: metav1.LabelSelector{},
+		PolicyTypes: []networkingv1.PolicyType{
+			networkingv1.PolicyTypeIngress,
+			networkingv1.PolicyTypeEgress,
+		},
+	}
+	if !reflect.DeepEqual(policy.Spec, wantSpec) {
+		t.Errorf("default-deny NetworkPolicy = %#v", policy.Spec)
+	}
+}
+
+func assertOTLPIngressPolicy(
+	t *testing.T,
+	policy *networkingv1.NetworkPolicy,
+	daemonSet *appsv1.DaemonSet,
+) {
+	t.Helper()
+
+	wantPeers := []networkingv1.NetworkPolicyPeer{
+		{
+			NamespaceSelector: namespaceNameSelector("platform-system"),
+			PodSelector: labelSelector(map[string]string{
+				applicationNameLabel:          "control-plane-api",
+				"app.kubernetes.io/component": "api",
+				"app.kubernetes.io/part-of":   "cloud-native-service-control-plane",
+			}),
+		},
+		{
+			NamespaceSelector: namespaceNameSelector("applications"),
+			PodSelector: labelSelector(map[string]string{
+				applicationNameLabel:                "managed-service",
+				"app.kubernetes.io/managed-by":      "platform-operator",
+				"platform.eoghanclancy.eu/template": "demo-http",
+			}),
+		},
+	}
+	wantPorts := []networkingv1.NetworkPolicyPort{
+		{Protocol: ptr.To(corev1.ProtocolTCP), Port: ptr.To(intstr.FromInt32(4317))},
+		{Protocol: ptr.To(corev1.ProtocolTCP), Port: ptr.To(intstr.FromInt32(4318))},
+	}
+	wantSpec := networkingv1.NetworkPolicySpec{
+		PodSelector: metav1.LabelSelector{
+			MatchLabels: daemonSet.Spec.Template.Labels,
+		},
+		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+		Ingress: []networkingv1.NetworkPolicyIngressRule{
+			{From: wantPeers, Ports: wantPorts},
+		},
+	}
+	if !reflect.DeepEqual(policy.Spec, wantSpec) {
+		t.Errorf("Collector OTLP ingress NetworkPolicy = %#v", policy.Spec)
+	}
+}
+
+func namespaceNameSelector(namespace string) *metav1.LabelSelector {
+	return labelSelector(map[string]string{
+		"kubernetes.io/metadata.name": namespace,
+	})
+}
+
+func labelSelector(labels map[string]string) *metav1.LabelSelector {
+	return &metav1.LabelSelector{MatchLabels: labels}
 }
 
 func TestFirstPartyImageSetUnchanged(t *testing.T) {
@@ -240,7 +494,7 @@ func assertCollectorDaemonSet(t *testing.T, daemonSet *appsv1.DaemonSet) {
 	}
 
 	podSpec := daemonSet.Spec.Template.Spec
-	if podSpec.ServiceAccountName != "default" ||
+	if podSpec.ServiceAccountName != collectorChartName ||
 		podSpec.AutomountServiceAccountToken == nil ||
 		*podSpec.AutomountServiceAccountToken || len(podSpec.ImagePullSecrets) != 0 {
 		t.Errorf("Collector Pod identity = %#v", podSpec)

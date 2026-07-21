@@ -1,6 +1,7 @@
 opentelemetry-collector:
   mode: daemonset
   fullnameOverride: opentelemetry-collector
+  namespaceOverride: observability
 
   image:
     repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-k8s
@@ -51,6 +52,7 @@ opentelemetry-collector:
 
   serviceAccount:
     create: false
+    name: opentelemetry-collector
     automountServiceAccountToken: false
 
   clusterRole:
