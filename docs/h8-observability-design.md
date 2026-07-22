@@ -650,6 +650,18 @@ backends together.
 | H8.10 retention/resource/security validation | policy tests, rendered-budget checks, validation notes | read-only inspection over at least 72h; configuration corrections only through Git/manual sync | expiry, compaction, disk slope, memory/CPU, immutable images, RBAC, NetworkPolicy, Pod Security, and private exposure all pass; disable newest/noisiest pipeline on failure | 0 |
 | H8.11 documentation closeout | README, infrastructure context, build guide, operator guide, H8 closeout/runbook | forbidden except separately reviewed GitOps changes already validated | all H8 exit criteria linked to sanitized evidence; docs revert has no runtime effect | 0 |
 
+Implementation status as of 2026-07-22:
+
+- H8.1 and H8.2 are complete.
+- H8.3 is complete. The Collector is deployed through restricted manual-sync
+  GitOps, both authorized OTLP/HTTP paths passed, unauthorized identities and
+  policy-excluded TCP 13133 were blocked, and the authoritative validation is
+  recorded in
+  [`h8-collector-deployment-closeout.md`](h8-collector-deployment-closeout.md).
+- Only the `nop` exporter is enabled, and no production workload exports OTLP.
+- H8.4 Prometheus is the next planned slice. H8.5 through H8.11 and the H8
+  parent phase remain incomplete.
+
 The order keeps Grafana last, so backend APIs and Prometheus can validate
 signals without spending Grafana memory early. The Collector starts with no
 durable exporters; Prometheus then observes it, Loki enables the log pipeline,

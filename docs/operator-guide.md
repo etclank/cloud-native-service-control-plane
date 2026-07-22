@@ -935,9 +935,20 @@ Completed:
 - authenticated lifecycle API at `https://api.platform.eoghanclancy.eu`;
 - production certificate, permanent HTTPS redirect, and Traefik rate limit;
 - live `portfolio-demo` with available status and tested drift correction;
-- tested API creation and deletion with owner-driven garbage collection.
+- tested API creation and deletion with owner-driven garbage collection;
+- restricted, manual-sync OpenTelemetry Collector deployment in
+  `observability`;
+- validated OTLP/HTTP access from both authorized workload identities and
+  isolation of unauthorized identities and TCP 13133;
+- Collector configured with only the `nop` exporter and no production workload
+  OTLP export.
 
-H7 platform deployment is complete. Later work will add observability, persistent data services, backup procedures, and the remaining roadmap workloads.
+H7 platform deployment and H8.3 Collector foundation are complete. H8 remains
+in progress; H8.4 Prometheus is next, while workload OTLP enablement remains a
+separately reviewed later slice. The authoritative Collector validation record
+is [`h8-collector-deployment-closeout.md`](h8-collector-deployment-closeout.md).
+Later work will add the remaining observability backends, persistent data
+services, backup procedures, and roadmap workloads.
 
 ## 14. Planned Final Documentation
 
