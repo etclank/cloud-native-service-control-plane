@@ -25,6 +25,7 @@ spec:
         app.kubernetes.io/name: control-plane-api
         app.kubernetes.io/component: api
         app.kubernetes.io/part-of: cloud-native-service-control-plane
+        observability.eoghanclancy.eu/otlp-client: control-plane-api
     spec:
       serviceAccountName: control-plane-api
       automountServiceAccountToken: true

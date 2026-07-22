@@ -49,7 +49,7 @@ const (
 	collectorChartRepository = "https://open-telemetry.github.io/opentelemetry-helm-charts"
 	collectorChartVersion    = "0.165.0"
 	collectorAppVersion      = "0.156.0"
-	wrapperChartVersion      = "0.2.0"
+	wrapperChartVersion      = "0.3.0"
 	collectorChartSHA256     = "b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5"
 	collectorResourceName    = "opentelemetry-collector-agent"
 	collectorOTLPReceiver    = "otlp"
@@ -58,6 +58,7 @@ const (
 	namespaceKind            = "Namespace"
 	networkPolicyKind        = "NetworkPolicy"
 	applicationNameLabel     = "app.kubernetes.io/name"
+	otlpClientLabel          = "observability.eoghanclancy.eu/otlp-client"
 	podSecurityVersion       = "v1.36"
 	collectorImage           = "ghcr.io/open-telemetry/opentelemetry-collector-releases/" +
 		"opentelemetry-collector-k8s@sha256:" +
@@ -408,17 +409,13 @@ func assertOTLPIngressPolicy(
 		{
 			NamespaceSelector: namespaceNameSelector("platform-system"),
 			PodSelector: labelSelector(map[string]string{
-				applicationNameLabel:          "control-plane-api",
-				"app.kubernetes.io/component": "api",
-				"app.kubernetes.io/part-of":   "cloud-native-service-control-plane",
+				otlpClientLabel: "control-plane-api",
 			}),
 		},
 		{
 			NamespaceSelector: namespaceNameSelector("applications"),
 			PodSelector: labelSelector(map[string]string{
-				applicationNameLabel:                "managed-service",
-				"app.kubernetes.io/managed-by":      "platform-operator",
-				"platform.eoghanclancy.eu/template": "demo-http",
+				otlpClientLabel: "managed-service",
 			}),
 		},
 	}

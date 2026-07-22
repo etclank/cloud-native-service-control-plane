@@ -35,17 +35,13 @@ spec:
               kubernetes.io/metadata.name: platform-system
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: control-plane-api
-              app.kubernetes.io/component: api
-              app.kubernetes.io/part-of: cloud-native-service-control-plane
+              observability.eoghanclancy.eu/otlp-client: control-plane-api
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: applications
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: managed-service
-              app.kubernetes.io/managed-by: platform-operator
-              platform.eoghanclancy.eu/template: demo-http
+              observability.eoghanclancy.eu/otlp-client: managed-service
       ports:
         - port: 4317
           protocol: TCP

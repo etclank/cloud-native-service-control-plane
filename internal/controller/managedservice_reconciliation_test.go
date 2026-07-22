@@ -69,6 +69,43 @@ var _ = Describe("ManagedService child reconciliation", func() {
 			managedService,
 		)).To(BeTrue())
 
+		deploymentLabels := map[string]string{
+			applicationNameLabel:         managedServiceApplicationName,
+			applicationInstanceLabel:     managedService.Name,
+			managedServiceManagedByLabel: platformOperatorName,
+			managedServiceTemplateLabel:  managedServiceContainerName,
+		}
+		podLabels := map[string]string{
+			applicationNameLabel:         managedServiceApplicationName,
+			applicationInstanceLabel:     managedService.Name,
+			managedServiceManagedByLabel: platformOperatorName,
+			managedServiceTemplateLabel:  managedServiceContainerName,
+			otlpClientLabel:              managedServiceOTLPClient,
+		}
+
+		Expect(deployment.Labels).To(Equal(deploymentLabels))
+		Expect(deployment.Spec.Selector).NotTo(BeNil())
+		Expect(deployment.Spec.Selector.MatchLabels).To(Equal(
+			managedServiceSelector(managedService),
+		))
+		Expect(deployment.Spec.Template.Labels).To(Equal(podLabels))
+		Expect(deployment.Labels).NotTo(HaveKey(otlpClientLabel))
+
+		diagnosticLabels := managedServiceDiagnosticLabels()
+		Expect(labelSetMatchesSelector(
+			diagnosticLabels,
+			deployment.Spec.Selector.MatchLabels,
+		)).To(BeFalse())
+
+		isolatedPodLabels := managedServicePodLabels(managedService)
+		isolatedPodLabels["test.example.com/mutation"] = "isolated"
+		Expect(managedServiceLabels(managedService)).NotTo(
+			HaveKey("test.example.com/mutation"),
+		)
+		Expect(managedServiceSelector(managedService)).NotTo(
+			HaveKey("test.example.com/mutation"),
+		)
+
 		Expect(deployment.Spec.Replicas).NotTo(BeNil())
 		Expect(*deployment.Spec.Replicas).To(Equal(int32(1)))
 
@@ -98,7 +135,7 @@ var _ = Describe("ManagedService child reconciliation", func() {
 		}))
 		Expect(container.Env).To(ContainElement(corev1.EnvVar{
 			Name:  "OTEL_SERVICE_NAME",
-			Value: "demo-http",
+			Value: managedServiceContainerName,
 		}))
 		for _, variable := range container.Env {
 			Expect(variable.Name).NotTo(HavePrefix("OTEL_EXPORTER_OTLP"))
@@ -154,6 +191,15 @@ var _ = Describe("ManagedService child reconciliation", func() {
 			service,
 			managedService,
 		)).To(BeTrue())
+		Expect(service.Labels).To(Equal(deploymentLabels))
+		Expect(service.Labels).NotTo(HaveKey(otlpClientLabel))
+		Expect(service.Spec.Selector).To(Equal(
+			managedServiceSelector(managedService),
+		))
+		Expect(labelSetMatchesSelector(
+			diagnosticLabels,
+			service.Spec.Selector,
+		)).To(BeFalse())
 		Expect(service.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
 		Expect(service.Spec.Ports).To(HaveLen(1))
 		Expect(service.Spec.Ports[0].Name).To(Equal(managedServiceHTTPPortName))
@@ -314,4 +360,11 @@ func createReconciliationTestResource(
 	})
 
 	return managedService
+}
+
+func managedServiceDiagnosticLabels() map[string]string {
+	return map[string]string{
+		otlpClientLabel: managedServiceOTLPClient,
+		"observability.eoghanclancy.eu/validation": "h8.3d",
+	}
 }
