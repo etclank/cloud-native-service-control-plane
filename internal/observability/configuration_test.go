@@ -463,7 +463,7 @@ func TestFirstPartyImageSetUnchanged(t *testing.T) {
 
 	wantReferences := map[string][]byte{
 		"operator": []byte("ghcr.io/etclank/cloud-native-service-control-plane-operator@sha256:" +
-			"a1265442af429340cb6cddf078cdec4b021bceb1d171215ad55fbccf7bfb4391"),
+			"8b537b3ab1780141b2554e495f7dd72ab36f7eb4d37c7ed396ebfa0d7cc88eb4"),
 		"demo": []byte("ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:" +
 			"bf9a75e48c4cbe2a14be4c61339115b76c2af11a06bfcc1b560f52ff3ed46e9e"),
 		"api": []byte("ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:" +
