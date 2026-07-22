@@ -138,3 +138,38 @@ opentelemetry-collector:
   initContainers: []
   extraVolumes: []
   extraVolumeMounts: []
+
+# H8.4A records immutable Prometheus supply-chain candidates only. H8.4B owns
+# the reviewed runtime, storage, RBAC, scrape, and network configuration.
+prometheus:
+  enabled: false
+
+  server:
+    image:
+      repository: quay.io/prometheus/prometheus
+      digest: sha256:bd2dcadfb0d1096e2a4c21817ac7af918e2f19ff628e4bf25fd67a924c13dd80
+
+  configmapReload:
+    prometheus:
+      enabled: false
+
+  alertmanager:
+    enabled: false
+  kube-state-metrics:
+    enabled: false
+  prometheus-node-exporter:
+    enabled: false
+  prometheus-pushgateway:
+    enabled: false
+
+kube-state-metrics:
+  enabled: false
+
+  image:
+    registry: registry.k8s.io
+    repository: kube-state-metrics/kube-state-metrics
+    tag: v2.19.1
+    sha: sha256:7661da8c99b733d43117e4cba12bd9865d335e5777191d0af3d789807aded9f4
+
+  kubeRBACProxy:
+    enabled: false

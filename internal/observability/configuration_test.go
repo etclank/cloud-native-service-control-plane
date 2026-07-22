@@ -17,7 +17,9 @@ limitations under the License.
 package observability
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -45,22 +47,32 @@ import (
 )
 
 const (
-	collectorChartName       = "opentelemetry-collector"
-	collectorChartRepository = "https://open-telemetry.github.io/opentelemetry-helm-charts"
-	collectorChartVersion    = "0.165.0"
-	collectorAppVersion      = "0.156.0"
-	wrapperChartVersion      = "0.3.0"
-	collectorChartSHA256     = "b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5"
-	collectorResourceName    = "opentelemetry-collector-agent"
-	collectorOTLPReceiver    = "otlp"
-	defaultDenyPolicyName    = "observability-default-deny"
-	otlpIngressPolicyName    = "opentelemetry-collector-otlp-ingress"
-	namespaceKind            = "Namespace"
-	networkPolicyKind        = "NetworkPolicy"
-	applicationNameLabel     = "app.kubernetes.io/name"
-	otlpClientLabel          = "observability.eoghanclancy.eu/otlp-client"
-	podSecurityVersion       = "v1.36"
-	collectorImage           = "ghcr.io/open-telemetry/opentelemetry-collector-releases/" +
+	collectorChartName           = "opentelemetry-collector"
+	collectorChartRepository     = "https://open-telemetry.github.io/opentelemetry-helm-charts"
+	collectorChartVersion        = "0.165.0"
+	collectorAppVersion          = "0.156.0"
+	prometheusChartName          = "prometheus"
+	prometheusChartVersion       = "29.18.0"
+	prometheusAppVersion         = "v3.13.1"
+	kubeStateMetricsChartName    = "kube-state-metrics"
+	kubeStateMetricsChartVersion = "7.8.1"
+	kubeStateMetricsAppVersion   = "2.19.1"
+	prometheusChartRepository    = "https://prometheus-community.github.io/helm-charts"
+	wrapperChartVersion          = "0.4.0"
+	collectorChartSHA256         = "b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5"
+	prometheusChartSHA256        = "24f5f056dd5cb00e98ffb905c9c2779e810153f1b5a6306bf2cc2c5a4f02a0b9"
+	kubeStateMetricsChartSHA256  = "b5a2436bd62226ff30a57b7237eaf2f99bac6be675484c4082bcd4312680de12"
+	wrapperChartLockDigest       = "sha256:5aecd00ad60ab3a29591e852480595e8719821f6f45a9a6066ddefe428674197"
+	collectorResourceName        = "opentelemetry-collector-agent"
+	collectorOTLPReceiver        = "otlp"
+	defaultDenyPolicyName        = "observability-default-deny"
+	otlpIngressPolicyName        = "opentelemetry-collector-otlp-ingress"
+	namespaceKind                = "Namespace"
+	networkPolicyKind            = "NetworkPolicy"
+	applicationNameLabel         = "app.kubernetes.io/name"
+	otlpClientLabel              = "observability.eoghanclancy.eu/otlp-client"
+	podSecurityVersion           = "v1.36"
+	collectorImage               = "ghcr.io/open-telemetry/opentelemetry-collector-releases/" +
 		"opentelemetry-collector-k8s@sha256:" +
 		"aa4509d8d72195c8576227fb33932788bc368fb0e81f6520f332130139236b91"
 	observabilityNamespace = "observability"
@@ -78,6 +90,7 @@ type chartDependency struct {
 	Name       string `json:"name"`
 	Repository string `json:"repository"`
 	Version    string `json:"version"`
+	Condition  string `json:"condition,omitempty"`
 }
 
 type chartLock struct {
@@ -91,26 +104,33 @@ type objectKey struct {
 	Name      string
 }
 
-func TestCollectorSupplyChain(t *testing.T) {
+func TestObservabilityDependencySupplyChain(t *testing.T) {
 	repositoryRoot := filepath.Join("..", "..")
 	chartPath := filepath.Join(repositoryRoot, "deploy", "observability", "Chart.yaml")
 	lockPath := filepath.Join(repositoryRoot, "deploy", "observability", "Chart.lock")
-	archivePath := filepath.Join(
-		repositoryRoot,
-		"deploy",
-		"observability",
-		"charts",
-		collectorChartName+"-"+collectorChartVersion+".tgz",
-	)
 
 	chart := decodeYAMLFile[chartMetadata](t, chartPath)
-	wantDependency := chartDependency{
-		Name:       collectorChartName,
-		Repository: collectorChartRepository,
-		Version:    collectorChartVersion,
+	wantChartDependencies := []chartDependency{
+		{
+			Name:       collectorChartName,
+			Repository: collectorChartRepository,
+			Version:    collectorChartVersion,
+		},
+		{
+			Name:       prometheusChartName,
+			Repository: prometheusChartRepository,
+			Version:    prometheusChartVersion,
+			Condition:  "prometheus.enabled",
+		},
+		{
+			Name:       kubeStateMetricsChartName,
+			Repository: prometheusChartRepository,
+			Version:    kubeStateMetricsChartVersion,
+			Condition:  "kube-state-metrics.enabled",
+		},
 	}
 	if chart.APIVersion != "v2" || chart.Name == "" || chart.Version != wrapperChartVersion ||
-		!reflect.DeepEqual(chart.Dependencies, []chartDependency{wantDependency}) {
+		!reflect.DeepEqual(chart.Dependencies, wantChartDependencies) {
 		t.Errorf("wrapper Chart metadata = %#v", chart)
 	}
 
@@ -119,7 +139,13 @@ func TestCollectorSupplyChain(t *testing.T) {
 		t.Fatalf("read Chart.lock: %v", err)
 	}
 	lock := decodeYAML[chartLock](t, lockContents)
-	if !reflect.DeepEqual(lock.Dependencies, []chartDependency{wantDependency}) ||
+	wantLockedDependencies := make([]chartDependency, len(wantChartDependencies))
+	for index, dependency := range wantChartDependencies {
+		dependency.Condition = ""
+		wantLockedDependencies[index] = dependency
+	}
+	if !reflect.DeepEqual(lock.Dependencies, wantLockedDependencies) ||
+		lock.Digest != wrapperChartLockDigest ||
 		!regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(lock.Digest) {
 		t.Errorf("dependency lock = %#v", lock)
 	}
@@ -135,36 +161,319 @@ func TestCollectorSupplyChain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validate dependency lock: %v\n%s", err, dependencyList)
 	}
-	fields := strings.Fields(string(dependencyList))
-	if len(fields) < 8 || !reflect.DeepEqual(fields[len(fields)-4:], []string{
-		collectorChartName,
-		collectorChartVersion,
-		collectorChartRepository,
-		"ok",
-	}) {
-		t.Errorf("dependency list = %q", dependencyList)
+	for _, dependency := range wantLockedDependencies {
+		pattern := regexp.MustCompile(
+			`(?m)^` + regexp.QuoteMeta(dependency.Name) + `\s+` +
+				regexp.QuoteMeta(dependency.Version) + `\s+` +
+				regexp.QuoteMeta(dependency.Repository) + `\s+ok\s*$`,
+		)
+		if !pattern.Match(dependencyList) {
+			t.Errorf("dependency list lacks %#v: %q", dependency, dependencyList)
+		}
 	}
 
-	archive, err := os.ReadFile(archivePath)
-	if err != nil {
-		t.Fatalf("read Collector chart archive: %v", err)
+	archives := []struct {
+		name       string
+		version    string
+		appVersion string
+		sha256     string
+	}{
+		{collectorChartName, collectorChartVersion, collectorAppVersion, collectorChartSHA256},
+		{prometheusChartName, prometheusChartVersion, prometheusAppVersion, prometheusChartSHA256},
+		{
+			kubeStateMetricsChartName,
+			kubeStateMetricsChartVersion,
+			kubeStateMetricsAppVersion,
+			kubeStateMetricsChartSHA256,
+		},
 	}
-	archiveDigest := sha256.Sum256(archive)
-	if hex.EncodeToString(archiveDigest[:]) != collectorChartSHA256 {
-		t.Errorf("Collector chart SHA-256 = %x", archiveDigest)
+	for _, expected := range archives {
+		archivePath := filepath.Join(
+			repositoryRoot,
+			"deploy",
+			"observability",
+			"charts",
+			expected.name+"-"+expected.version+".tgz",
+		)
+		archive, readErr := os.ReadFile(archivePath)
+		if readErr != nil {
+			t.Fatalf("read %s chart archive: %v", expected.name, readErr)
+		}
+		archiveDigest := sha256.Sum256(archive)
+		if hex.EncodeToString(archiveDigest[:]) != expected.sha256 {
+			t.Errorf("%s chart SHA-256 = %x", expected.name, archiveDigest)
+		}
+
+		showChart := exec.Command(helmPath, "show", "chart", archivePath)
+		metadata, showErr := showChart.Output()
+		if showErr != nil {
+			t.Fatalf("read %s chart metadata: %v", expected.name, showErr)
+		}
+		dependencyChart := decodeYAML[chartMetadata](t, metadata)
+		if dependencyChart.Name != expected.name ||
+			dependencyChart.Version != expected.version ||
+			dependencyChart.AppVersion != expected.appVersion {
+			t.Errorf("%s chart metadata = %#v", expected.name, dependencyChart)
+		}
+	}
+}
+
+func TestPrometheusNestedDependencySupplyChain(t *testing.T) {
+	repositoryRoot := filepath.Join("..", "..")
+	archivePath := filepath.Join(
+		repositoryRoot,
+		"deploy",
+		"observability",
+		"charts",
+		prometheusChartName+"-"+prometheusChartVersion+".tgz",
+	)
+	wantFiles := []string{
+		"prometheus/Chart.yaml",
+		"prometheus/Chart.lock",
+		"prometheus/charts/alertmanager/Chart.yaml",
+		"prometheus/charts/kube-state-metrics/Chart.yaml",
+		"prometheus/charts/prometheus-node-exporter/Chart.yaml",
+		"prometheus/charts/prometheus-pushgateway/Chart.yaml",
+	}
+	files := readTarGzipFiles(t, archivePath, wantFiles)
+
+	parentChart := decodeYAML[chartMetadata](t, files["prometheus/Chart.yaml"])
+	wantDeclared := []chartDependency{
+		{
+			Name:       "alertmanager",
+			Repository: prometheusChartRepository,
+			Version:    "1.40.*",
+			Condition:  "alertmanager.enabled",
+		},
+		{
+			Name:       kubeStateMetricsChartName,
+			Repository: prometheusChartRepository,
+			Version:    "7.8.*",
+			Condition:  "kube-state-metrics.enabled",
+		},
+		{
+			Name:       "prometheus-node-exporter",
+			Repository: prometheusChartRepository,
+			Version:    "4.56.*",
+			Condition:  "prometheus-node-exporter.enabled",
+		},
+		{
+			Name:       "prometheus-pushgateway",
+			Repository: prometheusChartRepository,
+			Version:    "3.7.*",
+			Condition:  "prometheus-pushgateway.enabled",
+		},
+	}
+	if !reflect.DeepEqual(parentChart.Dependencies, wantDeclared) {
+		t.Errorf("Prometheus declared dependencies = %#v", parentChart.Dependencies)
 	}
 
-	showChart := exec.Command(helmPath, "show", "chart", archivePath)
-	metadata, err := showChart.Output()
+	wantLocked := []chartDependency{
+		{Name: "alertmanager", Repository: prometheusChartRepository, Version: "1.40.3"},
+		{
+			Name:       kubeStateMetricsChartName,
+			Repository: prometheusChartRepository,
+			Version:    kubeStateMetricsChartVersion,
+		},
+		{
+			Name:       "prometheus-node-exporter",
+			Repository: prometheusChartRepository,
+			Version:    "4.56.1",
+		},
+		{
+			Name:       "prometheus-pushgateway",
+			Repository: prometheusChartRepository,
+			Version:    "3.7.0",
+		},
+	}
+	nestedLock := decodeYAML[chartLock](t, files["prometheus/Chart.lock"])
+	if !reflect.DeepEqual(nestedLock.Dependencies, wantLocked) ||
+		nestedLock.Digest != "sha256:076d6886a3e8e27e69e66f8d6559c640788b3a441f18400fb95b3ffd6192f659" {
+		t.Errorf("Prometheus nested dependency lock = %#v", nestedLock)
+	}
+
+	wantNestedCharts := map[string]chartMetadata{
+		"prometheus/charts/alertmanager/Chart.yaml": {
+			Name: "alertmanager", Version: "1.40.3", AppVersion: "v0.33.1",
+		},
+		"prometheus/charts/kube-state-metrics/Chart.yaml": {
+			Name: kubeStateMetricsChartName, Version: kubeStateMetricsChartVersion,
+			AppVersion: kubeStateMetricsAppVersion,
+		},
+		"prometheus/charts/prometheus-node-exporter/Chart.yaml": {
+			Name: "prometheus-node-exporter", Version: "4.56.1", AppVersion: "1.12.1",
+		},
+		"prometheus/charts/prometheus-pushgateway/Chart.yaml": {
+			Name: "prometheus-pushgateway", Version: "3.7.0", AppVersion: "v1.11.3",
+		},
+	}
+	for path, want := range wantNestedCharts {
+		got := decodeYAML[chartMetadata](t, files[path])
+		if got.Name != want.Name || got.Version != want.Version || got.AppVersion != want.AppVersion {
+			t.Errorf("nested chart %s metadata = %#v", path, got)
+		}
+	}
+}
+
+func TestPrometheusCandidatesRemainDisabledAndImmutable(t *testing.T) {
+	repositoryRoot := filepath.Join("..", "..")
+	valuesPath := filepath.Join(repositoryRoot, "deploy", "observability", "values.yaml")
+	values := decodeYAMLFile[map[string]any](t, valuesPath)
+
+	prometheus := nestedMap(t, values, prometheusChartName)
+	assertBoolean(t, prometheus, "enabled", false)
+	serverImage := nestedMap(t, nestedMap(t, prometheus, "server"), "image")
+	assertValue(t, serverImage, "repository", "quay.io/prometheus/prometheus")
+	if _, found := serverImage["tag"]; found {
+		t.Error("Prometheus candidate sets a tag even though the chart renders its digest directly")
+	}
+	assertValue(
+		t,
+		serverImage,
+		"digest",
+		"sha256:bd2dcadfb0d1096e2a4c21817ac7af918e2f19ff628e4bf25fd67a924c13dd80",
+	)
+	assertBoolean(t, nestedMap(t, nestedMap(t, prometheus, "configmapReload"), "prometheus"), "enabled", false)
+	for _, component := range []string{
+		"alertmanager", "kube-state-metrics", "prometheus-node-exporter", "prometheus-pushgateway",
+	} {
+		assertBoolean(t, nestedMap(t, prometheus, component), "enabled", false)
+	}
+
+	kubeStateMetrics := nestedMap(t, values, kubeStateMetricsChartName)
+	assertBoolean(t, kubeStateMetrics, "enabled", false)
+	kubeStateMetricsImage := nestedMap(t, kubeStateMetrics, "image")
+	assertValue(t, kubeStateMetricsImage, "registry", "registry.k8s.io")
+	assertValue(t, kubeStateMetricsImage, "repository", "kube-state-metrics/kube-state-metrics")
+	assertValue(t, kubeStateMetricsImage, "tag", "v"+kubeStateMetricsAppVersion)
+	assertValue(
+		t,
+		kubeStateMetricsImage,
+		"sha",
+		"sha256:7661da8c99b733d43117e4cba12bd9865d335e5777191d0af3d789807aded9f4",
+	)
+	assertBoolean(t, nestedMap(t, kubeStateMetrics, "kubeRBACProxy"), "enabled", false)
+
+	valuesContents, err := os.ReadFile(valuesPath)
 	if err != nil {
-		t.Fatalf("read dependency chart metadata: %v", err)
+		t.Fatalf("read candidate values: %v", err)
 	}
-	dependencyChart := decodeYAML[chartMetadata](t, metadata)
-	if dependencyChart.Name != collectorChartName ||
-		dependencyChart.Version != collectorChartVersion ||
-		dependencyChart.AppVersion != collectorAppVersion {
-		t.Errorf("dependency chart metadata = %#v", dependencyChart)
+	for _, mutable := range []string{
+		"quay.io/prometheus/prometheus:latest",
+		"registry.k8s.io/kube-state-metrics/kube-state-metrics:latest",
+	} {
+		if bytes.Contains(valuesContents, []byte(mutable)) {
+			t.Errorf("candidate values contain mutable image %q", mutable)
+		}
 	}
+}
+
+func TestPrometheusCandidateImagesRenderByDigest(t *testing.T) {
+	repositoryRoot := filepath.Join("..", "..")
+	command := exec.Command(
+		filepath.Join(repositoryRoot, "bin", "helm"),
+		"template",
+		"observability",
+		filepath.Join(repositoryRoot, "deploy", "observability"),
+		"--namespace",
+		observabilityNamespace,
+		"--set",
+		"prometheus.enabled=true",
+		"--set",
+		"kube-state-metrics.enabled=true",
+	)
+	rendered, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("render disabled Prometheus candidates: %v\n%s", err, rendered)
+	}
+
+	imagePattern := regexp.MustCompile(`(?m)^\s*image:\s*"?([^"\s]+)"?\s*$`)
+	matches := imagePattern.FindAllSubmatch(rendered, -1)
+	images := make([]string, 0, len(matches))
+	for _, match := range matches {
+		images = append(images, string(match[1]))
+	}
+	wantImages := []string{
+		collectorImage,
+		"registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1@sha256:" +
+			"7661da8c99b733d43117e4cba12bd9865d335e5777191d0af3d789807aded9f4",
+		"quay.io/prometheus/prometheus@sha256:" +
+			"bd2dcadfb0d1096e2a4c21817ac7af918e2f19ff628e4bf25fd67a924c13dd80",
+	}
+	if !reflect.DeepEqual(images, wantImages) {
+		t.Errorf("candidate-enabled rendered images = %#v, want %#v", images, wantImages)
+	}
+	for _, image := range images {
+		if strings.Contains(image, ":latest") || !strings.Contains(image, "@sha256:") {
+			t.Errorf("candidate-enabled render contains mutable image %q", image)
+		}
+	}
+}
+
+func TestPromtoolPin(t *testing.T) {
+	makefile, err := os.ReadFile(filepath.Join("..", "..", "Makefile"))
+	if err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+	for _, exact := range []string{
+		"PROMTOOL_VERSION ?= v3.13.1",
+		"PROMTOOL_LINUX_AMD64_SHA256 ?= 962b812371aff838d152b6ff2d56fdb7a6396f5542f48ebf73421b9721f0d103",
+		"https://github.com/prometheus/prometheus/releases/download/$${version}/$${archive}",
+	} {
+		if !bytes.Contains(makefile, []byte(exact)) {
+			t.Errorf("Makefile lacks exact Promtool pin %q", exact)
+		}
+	}
+}
+
+func readTarGzipFiles(t *testing.T, path string, want []string) map[string][]byte {
+	t.Helper()
+
+	archive, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open chart archive: %v", err)
+	}
+	defer archive.Close()
+
+	gzipReader, err := gzip.NewReader(archive)
+	if err != nil {
+		t.Fatalf("open chart gzip stream: %v", err)
+	}
+	defer gzipReader.Close()
+
+	wanted := make(map[string]struct{}, len(want))
+	for _, name := range want {
+		wanted[name] = struct{}{}
+	}
+	found := make(map[string][]byte, len(want))
+	tarReader := tar.NewReader(gzipReader)
+	for {
+		header, nextErr := tarReader.Next()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			t.Fatalf("read chart tar stream: %v", nextErr)
+		}
+		if _, ok := wanted[header.Name]; !ok {
+			continue
+		}
+		contents, readErr := io.ReadAll(tarReader)
+		if readErr != nil {
+			t.Fatalf("read %s from chart archive: %v", header.Name, readErr)
+		}
+		found[header.Name] = contents
+	}
+	if len(found) != len(wanted) {
+		foundNames := make([]string, 0, len(found))
+		for name := range found {
+			foundNames = append(foundNames, name)
+		}
+		slices.Sort(foundNames)
+		t.Fatalf("chart archive files found = %v, want %v", foundNames, want)
+	}
+
+	return found
 }
 
 func TestRenderedCollectorPackage(t *testing.T) {
@@ -808,6 +1117,15 @@ func assertValue(t *testing.T, object map[string]any, field string, want string)
 	got, found, err := unstructured.NestedString(object, field)
 	if err != nil || !found || got != want {
 		t.Errorf("field %q = %q, found=%t, error=%v, want %q", field, got, found, err, want)
+	}
+}
+
+func assertBoolean(t *testing.T, object map[string]any, field string, want bool) {
+	t.Helper()
+
+	got, found, err := unstructured.NestedBool(object, field)
+	if err != nil || !found || got != want {
+		t.Errorf("field %q = %t, found=%t, error=%v, want %t", field, got, found, err, want)
 	}
 }
 
