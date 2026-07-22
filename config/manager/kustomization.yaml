@@ -4,4 +4,4 @@ resources:
 images:
 - name: controller
   newName: ghcr.io/etclank/cloud-native-service-control-plane-operator
-  digest: sha256:377af6a1fb4df40c52d6be37d4e948ca1990fe4c0f840789da68fc3e449ffc75
+  digest: sha256:8b537b3ab1780141b2554e495f7dd72ab36f7eb4d37c7ed396ebfa0d7cc88eb4

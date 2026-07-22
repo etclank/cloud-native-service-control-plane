@@ -1,0 +1,32 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: observability
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  description: Restricted project for the portfolio observability stack
+
+  sourceRepos:
+    - git@github.com:etclank/cloud-native-service-control-plane.git
+
+  destinations:
+    - namespace: observability
+      server: https://kubernetes.default.svc
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: ServiceAccount
+    - group: ""
+      kind: Service
+    - group: apps
+      kind: DaemonSet
+    - group: networking.k8s.io
+      kind: NetworkPolicy

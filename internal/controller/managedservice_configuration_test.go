@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -36,11 +37,11 @@ import (
 const (
 	platformSystemNamespace = "platform-system"
 	approvedDemoHTTPImage   = "ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:" +
-		"2d1fc30e0cf75ba9fbe96af176f770524377ee5349acbee9ed94ae13f1143b2f"
+		"bf9a75e48c4cbe2a14be4c61339115b76c2af11a06bfcc1b560f52ff3ed46e9e"
 	approvedImagePullSecret    = "ghcr-pull"
 	approvedOperatorRepository = "ghcr.io/etclank/cloud-native-service-control-plane-operator"
 	approvedOperatorImage      = approvedOperatorRepository + "@sha256:" +
-		"377af6a1fb4df40c52d6be37d4e948ca1990fe4c0f840789da68fc3e449ffc75"
+		"8b537b3ab1780141b2554e495f7dd72ab36f7eb4d37c7ed396ebfa0d7cc88eb4"
 )
 
 func TestRenderedManagerConfiguration(t *testing.T) {
@@ -63,6 +64,53 @@ func TestRenderedManagerConfiguration(t *testing.T) {
 			"manager Deployment namespace = %q, want %q",
 			deployment.Namespace,
 			platformSystemNamespace,
+		)
+	}
+	if _, exists := deployment.Spec.Template.Labels[otlpClientLabel]; exists {
+		t.Errorf("operator Pod template has %q", otlpClientLabel)
+	}
+	wantWorkloadSelector := map[string]string{
+		applicationNameLabel: "cloud-native-service-control-plane",
+		"control-plane":      "controller-manager",
+	}
+	if deployment.Spec.Selector == nil ||
+		!reflect.DeepEqual(
+			deployment.Spec.Selector.MatchLabels,
+			wantWorkloadSelector,
+		) {
+		t.Errorf("operator Deployment selector = %#v", deployment.Spec.Selector)
+	}
+	operatorDiagnosticLabels := map[string]string{
+		applicationNameLabel:                       "h83d-operator-negative",
+		"observability.eoghanclancy.eu/validation": "h8.3d",
+	}
+	if labelSetMatchesSelector(operatorDiagnosticLabels, wantWorkloadSelector) {
+		t.Errorf(
+			"diagnostic labels %#v match operator Deployment selector %#v",
+			operatorDiagnosticLabels,
+			wantWorkloadSelector,
+		)
+	}
+
+	metricsService := findRenderedManagerMetricsService(t, rendered)
+	if !reflect.DeepEqual(metricsService.Spec.Selector, wantWorkloadSelector) {
+		t.Errorf(
+			"operator metrics Service selector = %#v, want %#v",
+			metricsService.Spec.Selector,
+			wantWorkloadSelector,
+		)
+	}
+	if _, exists := metricsService.Labels[otlpClientLabel]; exists {
+		t.Errorf("operator metrics Service metadata has %q", otlpClientLabel)
+	}
+	if labelSetMatchesSelector(
+		operatorDiagnosticLabels,
+		metricsService.Spec.Selector,
+	) {
+		t.Errorf(
+			"diagnostic labels %#v match operator metrics Service selector %#v",
+			operatorDiagnosticLabels,
+			metricsService.Spec.Selector,
 		)
 	}
 
@@ -103,6 +151,15 @@ func TestRenderedManagerConfiguration(t *testing.T) {
 			"image pull Secret argument count = %d, want 1",
 			arguments[wantPullSecretArgument],
 		)
+	}
+	if arguments["--metrics-bind-address=:8443"] != 1 {
+		t.Errorf(
+			"authenticated metrics listener argument count = %d, want 1",
+			arguments["--metrics-bind-address=:8443"],
+		)
+	}
+	if arguments["--metrics-secure=false"] != 0 {
+		t.Error("manager disables metrics endpoint authentication")
 	}
 
 	for _, argument := range manager.Args {
@@ -262,6 +319,43 @@ func findRenderedManagerDeployment(
 	return nil
 }
 
+func findRenderedManagerMetricsService(
+	t *testing.T,
+	rendered []byte,
+) *corev1.Service {
+	t.Helper()
+
+	decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(rendered), 4096)
+	for {
+		object := &unstructured.Unstructured{}
+		err := decoder.Decode(object)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("decode rendered configuration: %v", err)
+		}
+		if object.GetKind() != "Service" ||
+			object.GetName() != "platform-operator-controller-manager-metrics-service" {
+			continue
+		}
+
+		service := &corev1.Service{}
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(
+			object.Object,
+			service,
+		); err != nil {
+			t.Fatalf("convert rendered manager metrics Service: %v", err)
+		}
+
+		return service
+	}
+
+	t.Fatal("rendered configuration has no platform operator metrics Service")
+
+	return nil
+}
+
 func findManagerContainer(
 	t *testing.T,
 	deployment *appsv1.Deployment,
@@ -299,4 +393,14 @@ func environmentWithoutVariable(environment []string, name string) []string {
 	}
 
 	return filtered
+}
+
+func labelSetMatchesSelector(labels, selector map[string]string) bool {
+	for key, value := range selector {
+		if labels[key] != value {
+			return false
+		}
+	}
+
+	return true
 }

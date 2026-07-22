@@ -68,6 +68,7 @@ func TestControlPlaneAPIImagePackaging(t *testing.T) {
 	for _, path := range []string{
 		"cmd/control-plane-api/**",
 		"internal/controlplaneapi/**",
+		"internal/telemetry/**",
 		"api/**",
 		"go.mod",
 		"go.sum",
@@ -76,6 +77,17 @@ func TestControlPlaneAPIImagePackaging(t *testing.T) {
 	} {
 		if strings.Count(workflow, "- "+path) != 2 {
 			t.Errorf("workflow path %q is not present in push and pull request triggers", path)
+		}
+	}
+
+	pushTrigger := workflowSection(t, workflow, "  push:\n", "  pull_request:\n")
+	for _, branch := range []string{
+		"main",
+		"h7-platform-foundation",
+		"h8-observability-foundation",
+	} {
+		if !strings.Contains(pushTrigger, "      - "+branch+"\n") {
+			t.Errorf("API image push trigger does not include branch %q", branch)
 		}
 	}
 
@@ -119,6 +131,21 @@ func TestControlPlaneAPIImagePackaging(t *testing.T) {
 		strings.Contains(strings.ToLower(finalStage), "secret") {
 		t.Error("API final image copies content beyond the built binary")
 	}
+}
+
+func workflowSection(t *testing.T, workflow, startMarker, endMarker string) string {
+	t.Helper()
+
+	start := strings.Index(workflow, startMarker)
+	if start < 0 {
+		t.Fatalf("workflow does not contain section marker %q", startMarker)
+	}
+	end := strings.Index(workflow[start+len(startMarker):], endMarker)
+	if end < 0 {
+		t.Fatalf("workflow does not contain following marker %q", endMarker)
+	}
+
+	return workflow[start : start+len(startMarker)+end]
 }
 
 func readRepositoryFile(t *testing.T, pathElements ...string) string {

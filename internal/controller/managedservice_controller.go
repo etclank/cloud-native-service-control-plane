@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -42,6 +43,9 @@ type ManagedServiceReconciler struct {
 	// ImagePullSecretName is an optional Secret used to pull managed workload
 	// images from a private registry.
 	ImagePullSecretName string
+
+	// Metrics records bounded ManagedService reconciliation outcomes.
+	Metrics *ManagedServiceMetrics
 }
 
 // +kubebuilder:rbac:groups=platform.eoghanclancy.eu,resources=managedservices,verbs=get;list;watch
@@ -62,7 +66,12 @@ type ManagedServiceReconciler struct {
 func (r *ManagedServiceReconciler) Reconcile(
 	ctx context.Context,
 	req ctrl.Request,
-) (ctrl.Result, error) {
+) (result ctrl.Result, reconcileErr error) {
+	started := time.Now()
+	defer func() {
+		r.Metrics.observeReconciliation(result, reconcileErr, time.Since(started))
+	}()
+
 	logger := logf.FromContext(ctx)
 
 	managedService := &platformv1alpha1.ManagedService{}

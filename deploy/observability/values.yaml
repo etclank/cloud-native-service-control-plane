@@ -1,0 +1,140 @@
+opentelemetry-collector:
+  mode: daemonset
+  fullnameOverride: opentelemetry-collector
+  namespaceOverride: observability
+
+  image:
+    repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-k8s
+    digest: sha256:aa4509d8d72195c8576227fb33932788bc368fb0e81f6520f332130139236b91
+    pullPolicy: IfNotPresent
+
+  command:
+    name: otelcol-k8s
+
+  alternateConfig:
+    exporters:
+      nop: {}
+    extensions:
+      health_check:
+        endpoint: ${env:MY_POD_IP}:13133
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 512
+        send_batch_max_size: 1024
+      memory_limiter:
+        check_interval: 5s
+        limit_mib: 144
+        spike_limit_mib: 32
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: ${env:MY_POD_IP}:4317
+          http:
+            endpoint: ${env:MY_POD_IP}:4318
+    service:
+      extensions:
+        - health_check
+      pipelines:
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [nop]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [nop]
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [nop]
+
+  serviceAccount:
+    create: false
+    name: opentelemetry-collector
+    automountServiceAccountToken: false
+
+  clusterRole:
+    create: false
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    privileged: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 96Mi
+    limits:
+      cpu: 200m
+      memory: 192Mi
+
+  ports:
+    otlp:
+      enabled: true
+      containerPort: 4317
+      servicePort: 4317
+      hostPort: 0
+      protocol: TCP
+      appProtocol: grpc
+    otlp-http:
+      enabled: true
+      containerPort: 4318
+      servicePort: 4318
+      hostPort: 0
+      protocol: TCP
+    jaeger-compact:
+      enabled: false
+    jaeger-thrift:
+      enabled: false
+    jaeger-grpc:
+      enabled: false
+    zipkin:
+      enabled: false
+    metrics:
+      enabled: false
+
+  service:
+    enabled: false
+  ingress:
+    enabled: false
+  httproute:
+    enabled: false
+  podMonitor:
+    enabled: false
+  serviceMonitor:
+    enabled: false
+  prometheusRule:
+    enabled: false
+  networkPolicy:
+    enabled: false
+
+  hostNetwork: false
+  hostPID: false
+  shareProcessNamespace: false
+
+  rollout:
+    strategy: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+  extraContainers: []
+  initContainers: []
+  extraVolumes: []
+  extraVolumeMounts: []

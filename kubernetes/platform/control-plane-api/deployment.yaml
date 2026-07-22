@@ -25,6 +25,7 @@ spec:
         app.kubernetes.io/name: control-plane-api
         app.kubernetes.io/component: api
         app.kubernetes.io/part-of: cloud-native-service-control-plane
+        observability.eoghanclancy.eu/otlp-client: control-plane-api
     spec:
       serviceAccountName: control-plane-api
       automountServiceAccountToken: true
@@ -40,15 +41,22 @@ spec:
           type: RuntimeDefault
       containers:
         - name: control-plane-api
-          image: ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:22ffdf07c24af219a1fe493095c3293c480da4f3cdc04ccc167e65ae81d631ad
+          image: ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:604c16f04b00272b7b45072ff0c50c5c2d081fbc4ee795e62a4ed1fc861df36e
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080
               protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
           env:
             - name: PORT
               value: "8080"
+            - name: METRICS_PORT
+              value: "9090"
+            - name: OTEL_SERVICE_NAME
+              value: control-plane-api
             - name: API_TOKEN_FILE
               value: /var/run/secrets/control-plane-api/token
           livenessProbe:

@@ -1,0 +1,49 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: observability-default-deny
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: observability
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: opentelemetry-collector-otlp-ingress
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: opentelemetry-collector
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: opentelemetry-collector
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      component: agent-collector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-system
+          podSelector:
+            matchLabels:
+              observability.eoghanclancy.eu/otlp-client: control-plane-api
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: applications
+          podSelector:
+            matchLabels:
+              observability.eoghanclancy.eu/otlp-client: managed-service
+      ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP

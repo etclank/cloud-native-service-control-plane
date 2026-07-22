@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - h7-platform-foundation
+      - h8-observability-foundation
     paths:
       - api/**
       - cmd/main.go
       - internal/controller/**
+      - internal/telemetry/**
       - Dockerfile
       - .dockerignore
       - go.mod
@@ -19,6 +21,7 @@ on:
       - api/**
       - cmd/main.go
       - internal/controller/**
+      - internal/telemetry/**
       - Dockerfile
       - .dockerignore
       - go.mod

@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  project: observability
+
+  source:
+    repoURL: git@github.com:etclank/cloud-native-service-control-plane.git
+    targetRevision: 01c2d27b2bc671ce76686ce8d60c6a0c5b70b89d
+    path: deploy/observability
+    helm:
+      releaseName: observability
+      valueFiles:
+        - values.yaml
+      passCredentials: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=false
+
+  revisionHistoryLimit: 10

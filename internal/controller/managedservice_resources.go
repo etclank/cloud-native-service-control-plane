@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -34,9 +35,19 @@ import (
 )
 
 const (
-	managedServiceContainerName = "demo-http"
-	managedServiceContainerPort = int32(8080)
-	managedServiceServicePort   = int32(80)
+	managedServiceContainerName        = "demo-http"
+	managedServiceContainerPort        = int32(8080)
+	managedServiceHTTPPortName         = "http"
+	managedServiceMetricsContainerPort = int32(9090)
+	managedServiceServicePort          = int32(80)
+	applicationNameLabel               = "app.kubernetes.io/name"
+	applicationInstanceLabel           = "app.kubernetes.io/instance"
+	managedServiceApplicationName      = "managed-service"
+	managedServiceManagedByLabel       = "app.kubernetes.io/managed-by"
+	managedServiceTemplateLabel        = "platform.eoghanclancy.eu/template"
+	platformOperatorName               = "platform-operator"
+	otlpClientLabel                    = "observability.eoghanclancy.eu/otlp-client"
+	managedServiceOTLPClient           = "managed-service"
 )
 
 func validateImmutableImage(image string) error {
@@ -61,8 +72,8 @@ func managedServiceSelector(
 	managedService *platformv1alpha1.ManagedService,
 ) map[string]string {
 	return map[string]string{
-		"app.kubernetes.io/name":     "managed-service",
-		"app.kubernetes.io/instance": managedService.Name,
+		applicationNameLabel:     managedServiceApplicationName,
+		applicationInstanceLabel: managedService.Name,
 	}
 }
 
@@ -70,12 +81,21 @@ func managedServiceLabels(
 	managedService *platformv1alpha1.ManagedService,
 ) map[string]string {
 	labels := managedServiceSelector(managedService)
-	labels["app.kubernetes.io/managed-by"] = "platform-operator"
-	labels["platform.eoghanclancy.eu/template"] = string(
+	labels[managedServiceManagedByLabel] = platformOperatorName
+	labels[managedServiceTemplateLabel] = string(
 		managedService.Spec.Template,
 	)
 
 	return labels
+}
+
+func managedServicePodLabels(
+	managedService *platformv1alpha1.ManagedService,
+) map[string]string {
+	podLabels := maps.Clone(managedServiceLabels(managedService))
+	podLabels[otlpClientLabel] = managedServiceOTLPClient
+
+	return podLabels
 }
 
 func desiredReplicas(
@@ -123,7 +143,7 @@ func (r *ManagedServiceReconciler) reconcileDeployment(
 				MatchLabels: managedServiceSelector(managedService),
 			}
 			deployment.Spec.Template.Labels =
-				managedServiceLabels(managedService)
+				managedServicePodLabels(managedService)
 
 			imagePullSecrets := []corev1.LocalObjectReference(nil)
 			if r.ImagePullSecretName != "" {
@@ -155,8 +175,13 @@ func (r *ManagedServiceReconciler) reconcileDeployment(
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Ports: []corev1.ContainerPort{
 							{
-								Name:          "http",
+								Name:          managedServiceHTTPPortName,
 								ContainerPort: managedServiceContainerPort,
+								Protocol:      corev1.ProtocolTCP,
+							},
+							{
+								Name:          "metrics",
+								ContainerPort: managedServiceMetricsContainerPort,
 								Protocol:      corev1.ProtocolTCP,
 							},
 						},
@@ -164,6 +189,14 @@ func (r *ManagedServiceReconciler) reconcileDeployment(
 							{
 								Name:  "MESSAGE",
 								Value: managedService.Spec.Message,
+							},
+							{
+								Name:  "METRICS_PORT",
+								Value: "9090",
+							},
+							{
+								Name:  "OTEL_SERVICE_NAME",
+								Value: managedServiceContainerName,
 							},
 						},
 						Resources: corev1.ResourceRequirements{
@@ -225,7 +258,7 @@ func managedServiceHTTPProbe(
 		ProbeHandler: corev1.ProbeHandler{
 			HTTPGet: &corev1.HTTPGetAction{
 				Path:   path,
-				Port:   intstr.FromString("http"),
+				Port:   intstr.FromString(managedServiceHTTPPortName),
 				Scheme: corev1.URISchemeHTTP,
 			},
 		},
@@ -270,10 +303,10 @@ func (r *ManagedServiceReconciler) reconcileService(
 				managedServiceSelector(managedService)
 			service.Spec.Ports = []corev1.ServicePort{
 				{
-					Name:       "http",
+					Name:       managedServiceHTTPPortName,
 					Port:       managedServiceServicePort,
 					Protocol:   corev1.ProtocolTCP,
-					TargetPort: intstr.FromString("http"),
+					TargetPort: intstr.FromString(managedServiceHTTPPortName),
 				},
 			}
 

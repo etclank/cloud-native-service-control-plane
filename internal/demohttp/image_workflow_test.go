@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controller
+package demohttp
 
 import (
 	"os"
@@ -24,71 +24,47 @@ import (
 	"testing"
 )
 
-const (
-	operatorImageName = "ghcr.io/etclank/cloud-native-service-control-plane-operator"
-	mainBranch        = "main"
-)
-
-func TestOperatorImageWorkflow(t *testing.T) {
+func TestDemoHTTPImageWorkflow(t *testing.T) {
 	workflowPath := filepath.Join(
 		"..",
 		"..",
 		".github",
 		"workflows",
-		"operator-image.yml",
+		"demo-http-image.yml",
 	)
 	workflowBytes, err := os.ReadFile(workflowPath)
 	if err != nil {
-		t.Fatalf("read operator image workflow: %v", err)
+		t.Fatalf("read demo HTTP image workflow: %v", err)
 	}
 	workflow := string(workflowBytes)
 
-	required := []string{
-		"IMAGE_NAME: " + operatorImageName,
-		"type=sha,format=long,prefix=sha-",
-		"latest=false",
-		"context: .",
-		"file: Dockerfile",
-	}
-	for _, value := range required {
-		if !strings.Contains(workflow, value) {
-			t.Errorf("operator image workflow does not contain %q", value)
-		}
-	}
-
 	for _, path := range []string{
-		"cmd/main.go",
-		"internal/controller/**",
+		"cmd/demo-http/**",
+		"internal/demohttp/**",
 		"internal/telemetry/**",
-		"api/**",
 		"go.mod",
 		"go.sum",
-		"Dockerfile",
-		".github/workflows/operator-image.yml",
+		"images/demo-http/Dockerfile",
+		".github/workflows/demo-http-image.yml",
 	} {
 		if strings.Count(workflow, "- "+path) != 2 {
 			t.Errorf("workflow path %q is not present in push and pull request triggers", path)
 		}
 	}
 
-	pushStart := strings.Index(workflow, "  push:\n")
-	pullRequestStart := strings.Index(workflow, "  pull_request:\n")
-	if pushStart < 0 || pullRequestStart < 0 || pullRequestStart <= pushStart {
-		t.Fatal("operator workflow push trigger could not be isolated")
-	}
-	pushTrigger := workflow[pushStart:pullRequestStart]
-	for _, branch := range []string{
-		mainBranch,
-		"h7-platform-foundation",
-		"h8-observability-foundation",
+	for _, safeguard := range []string{
+		"type=sha,format=long,prefix=sha-",
+		"if: github.event_name != 'pull_request'",
+		"push: ${{ github.event_name != 'pull_request' }}",
 	} {
-		if !strings.Contains(pushTrigger, "      - "+branch+"\n") {
-			t.Errorf("operator image push trigger does not include branch %q", branch)
+		if !strings.Contains(workflow, safeguard) {
+			t.Errorf("demo HTTP image workflow does not contain %q", safeguard)
 		}
 	}
-
-	if strings.Contains(workflow, ":latest") {
-		t.Error("operator image workflow contains a mutable latest tag")
+	if strings.Contains(workflow, ":latest") ||
+		strings.Contains(workflow, "type=ref") ||
+		strings.Contains(workflow, "format=short") {
+		t.Error("demo HTTP image workflow contains a mutable tag configuration")
 	}
 
 	usesPattern := regexp.MustCompile(`(?m)^\s*uses:\s+\S+@([^\s]+)\s+#\s+v\S+$`)

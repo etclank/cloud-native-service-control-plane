@@ -23,11 +23,15 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+
+	"github.com/etclank/cloud-native-service-control-plane/internal/telemetry"
 )
 
 const (
 	// DefaultPort is used when PORT is not configured.
 	DefaultPort = 8080
+	// DefaultMetricsPort is used when METRICS_PORT is not configured.
+	DefaultMetricsPort = telemetry.DefaultMetricsPort
 	// MinimumTokenLength is the minimum accepted API bearer token length.
 	MinimumTokenLength = 32
 )
@@ -75,6 +79,12 @@ func ParsePort(value string) (int, error) {
 	}
 
 	return port, nil
+}
+
+// ParseMetricsPort parses METRICS_PORT and ensures the internal listener does
+// not share the public API port.
+func ParseMetricsPort(value string, publicPort int) (int, error) {
+	return telemetry.ParseMetricsPort(value, publicPort)
 }
 
 func trimTrailingLineEnding(contents []byte) []byte {

@@ -38,20 +38,24 @@ import (
 )
 
 const (
-	controlPlaneAPINamespace = "platform-system"
-	certificateKind          = "Certificate"
-	ingressKind              = "Ingress"
-	middlewareKind           = "Middleware"
-	managedServiceRoleName   = "control-plane-api-managedservice"
-	productionIssuerName     = "letsencrypt-production"
-	publicAPIHostname        = "api.platform.eoghanclancy.eu"
-	rateLimitMiddlewareName  = "control-plane-api-rate-limit"
-	redirectMiddlewareName   = "control-plane-api-redirect-https"
-	serviceAccountKind       = "ServiceAccount"
-	tlsSecretName            = "control-plane-api-tls"
-	roleKind                 = "Role"
-	approvedAPIImage         = "ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:" +
-		"22ffdf07c24af219a1fe493095c3293c480da4f3cdc04ccc167e65ae81d631ad"
+	controlPlaneAPINamespace  = "platform-system"
+	certificateKind           = "Certificate"
+	ingressKind               = "Ingress"
+	middlewareKind            = "Middleware"
+	managedServiceRoleName    = "control-plane-api-managedservice"
+	productionIssuerName      = "letsencrypt-production"
+	publicAPIHostname         = "api.platform.eoghanclancy.eu"
+	rateLimitMiddlewareName   = "control-plane-api-rate-limit"
+	redirectMiddlewareName    = "control-plane-api-redirect-https"
+	serviceAccountKind        = "ServiceAccount"
+	tlsSecretName             = "control-plane-api-tls"
+	roleKind                  = "Role"
+	apiOTLPClientLabel        = "observability.eoghanclancy.eu/otlp-client"
+	apiOTLPClientValue        = "control-plane-api"
+	diagnosticValidationLabel = "observability.eoghanclancy.eu/validation"
+	apiApplicationNameLabel   = "app.kubernetes.io/name"
+	approvedAPIImage          = "ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:" +
+		"604c16f04b00272b7b45072ff0c50c5c2d081fbc4ee795e62a4ed1fc861df36e"
 )
 
 var (
@@ -235,6 +239,37 @@ func assertControlPlaneAPIDeployment(
 		Namespace: controlPlaneAPINamespace,
 		Name:      controlPlaneAPIResourceName,
 	}, deployment)
+	wantPodLabels := map[string]string{
+		apiApplicationNameLabel:       controlPlaneAPIResourceName,
+		"app.kubernetes.io/component": "api",
+		"app.kubernetes.io/part-of":   "cloud-native-service-control-plane",
+		apiOTLPClientLabel:            apiOTLPClientValue,
+	}
+	if !reflect.DeepEqual(deployment.Spec.Template.Labels, wantPodLabels) {
+		t.Errorf(
+			"control-plane API Pod labels = %#v, want %#v",
+			deployment.Spec.Template.Labels,
+			wantPodLabels,
+		)
+	}
+	if _, exists := deployment.Labels[apiOTLPClientLabel]; exists {
+		t.Errorf("control-plane API Deployment metadata has %q", apiOTLPClientLabel)
+	}
+	wantSelector := map[string]string{
+		apiApplicationNameLabel: controlPlaneAPIResourceName,
+	}
+	if deployment.Spec.Selector == nil ||
+		!reflect.DeepEqual(deployment.Spec.Selector.MatchLabels, wantSelector) {
+		t.Errorf("control-plane API Deployment selector = %#v", deployment.Spec.Selector)
+	}
+	diagnosticLabels := controlPlaneAPIDiagnosticLabels()
+	if labelSetMatchesSelector(diagnosticLabels, wantSelector) {
+		t.Errorf(
+			"diagnostic labels %#v match control-plane API Deployment selector %#v",
+			diagnosticLabels,
+			wantSelector,
+		)
+	}
 	assertDeploymentRollout(t, deployment)
 	assertPodSecurityAndIdentity(t, &deployment.Spec.Template.Spec)
 	assertAPIContainer(t, &deployment.Spec.Template.Spec.Containers[0])
@@ -299,22 +334,39 @@ func assertAPIContainer(t *testing.T, container *corev1.Container) {
 		strings.Contains(container.Image, ":sha-") {
 		t.Errorf("control-plane API container image = %q", container.Image)
 	}
-	if !reflect.DeepEqual(container.Ports, []corev1.ContainerPort{{
-		Name:          "http",
-		ContainerPort: 8080,
-		Protocol:      corev1.ProtocolTCP,
-	}}) {
+	wantPorts := []corev1.ContainerPort{
+		{
+			Name:          "http",
+			ContainerPort: 8080,
+			Protocol:      corev1.ProtocolTCP,
+		},
+		{
+			Name:          "metrics",
+			ContainerPort: 9090,
+			Protocol:      corev1.ProtocolTCP,
+		},
+	}
+	if !reflect.DeepEqual(container.Ports, wantPorts) {
 		t.Fatalf("control-plane API container ports = %#v", container.Ports)
 	}
-	if container.Ports[0].HostPort != 0 {
-		t.Errorf("control-plane API container exposes hostPort %d", container.Ports[0].HostPort)
+	for _, port := range container.Ports {
+		if port.HostPort != 0 {
+			t.Errorf("control-plane API container exposes hostPort %d", port.HostPort)
+		}
 	}
 	wantEnvironment := []corev1.EnvVar{
 		{Name: "PORT", Value: "8080"},
+		{Name: "METRICS_PORT", Value: "9090"},
+		{Name: "OTEL_SERVICE_NAME", Value: controlPlaneAPIResourceName},
 		{Name: "API_TOKEN_FILE", Value: "/var/run/secrets/control-plane-api/token"},
 	}
 	if !reflect.DeepEqual(container.Env, wantEnvironment) {
 		t.Errorf("control-plane API environment = %#v", container.Env)
+	}
+	for _, variable := range container.Env {
+		if strings.HasPrefix(variable.Name, "OTEL_EXPORTER_OTLP") {
+			t.Errorf("control-plane API configures an OTLP endpoint: %q", variable.Name)
+		}
 	}
 	assertContainerSecurity(t, container.SecurityContext)
 	assertContainerProbesAndResources(t, container)
@@ -409,6 +461,39 @@ func assertControlPlaneAPIService(
 		service.Spec.Ports[0].TargetPort != intstr.FromString("http") {
 		t.Errorf("control-plane API Service = %#v", service.Spec)
 	}
+	wantSelector := map[string]string{
+		apiApplicationNameLabel: controlPlaneAPIResourceName,
+	}
+	if !reflect.DeepEqual(service.Spec.Selector, wantSelector) {
+		t.Errorf("control-plane API Service selector = %#v, want %#v", service.Spec.Selector, wantSelector)
+	}
+	if _, exists := service.Labels[apiOTLPClientLabel]; exists {
+		t.Errorf("control-plane API Service metadata has %q", apiOTLPClientLabel)
+	}
+	if labelSetMatchesSelector(controlPlaneAPIDiagnosticLabels(), service.Spec.Selector) {
+		t.Errorf(
+			"diagnostic labels %#v match control-plane API Service selector %#v",
+			controlPlaneAPIDiagnosticLabels(),
+			service.Spec.Selector,
+		)
+	}
+}
+
+func controlPlaneAPIDiagnosticLabels() map[string]string {
+	return map[string]string{
+		apiOTLPClientLabel:        apiOTLPClientValue,
+		diagnosticValidationLabel: "h8.3d",
+	}
+}
+
+func labelSetMatchesSelector(labels, selector map[string]string) bool {
+	for key, value := range selector {
+		if labels[key] != value {
+			return false
+		}
+	}
+
+	return true
 }
 
 func assertControlPlaneAPITLS(

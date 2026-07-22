@@ -31,6 +31,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	controllermetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -191,12 +192,20 @@ func main() {
 		setupLog.Error(err, "Failed to start manager")
 		os.Exit(1)
 	}
+	managedServiceMetrics, err := controller.NewManagedServiceMetrics(
+		controllermetrics.Registry,
+	)
+	if err != nil {
+		setupLog.Error(err, "Failed to register ManagedService metrics")
+		os.Exit(1)
+	}
 
 	if err := (&controller.ManagedServiceReconciler{
 		Client:              mgr.GetClient(),
 		Scheme:              mgr.GetScheme(),
 		DemoHTTPImage:       demoHTTPImage,
 		ImagePullSecretName: managedServiceImagePullSecret,
+		Metrics:             managedServiceMetrics,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "managedservice")
 		os.Exit(1)

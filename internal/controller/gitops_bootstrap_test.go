@@ -178,7 +178,7 @@ func assertPlatformOperatorApplication(t *testing.T, application argoApplication
 		application.Kind != "Application" {
 		t.Errorf("application identity = %s %s", application.APIVersion, application.Kind)
 	}
-	if application.Metadata.Name != "platform-operator" ||
+	if application.Metadata.Name != platformOperatorName ||
 		application.Metadata.Namespace != argoNamespace {
 		t.Errorf("application metadata = %#v", application.Metadata)
 	}
