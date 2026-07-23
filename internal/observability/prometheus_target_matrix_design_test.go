@@ -95,25 +95,45 @@ type prometheusTargetDesign struct {
 		Selectors       []string `json:"selectors"`
 		RelabelSequence []string `json:"relabelSequence"`
 	} `json:"discovery"`
-	Scheme          string   `json:"scheme"`
-	Port            int      `json:"port"`
-	Path            string   `json:"path"`
-	Interval        string   `json:"interval"`
-	Timeout         string   `json:"timeout"`
-	Authentication  string   `json:"authentication"`
-	TokenFile       string   `json:"tokenFile"`
-	TLSVerification string   `json:"tlsVerification"`
-	TargetLabels    []string `json:"targetLabels"`
-	RBAC            []string `json:"rbac"`
-	NetworkPolicy   []string `json:"networkPolicy"`
-	MetricPolicy    string   `json:"metricPolicy"`
-	Lifecycle       string   `json:"lifecycle"`
+	Scheme          string                         `json:"scheme"`
+	Port            int                            `json:"port"`
+	Path            string                         `json:"path"`
+	Interval        string                         `json:"interval"`
+	Timeout         string                         `json:"timeout"`
+	Authentication  string                         `json:"authentication"`
+	TokenFile       string                         `json:"tokenFile"`
+	TLSVerification string                         `json:"tlsVerification"`
+	TargetLabels    []string                       `json:"targetLabels"`
+	RBAC            []string                       `json:"rbac"`
+	NetworkPolicy   []string                       `json:"networkPolicy"`
+	MetricPolicy    string                         `json:"metricPolicy"`
+	ProofEvidence   *prometheusTargetProofEvidence `json:"proofEvidence,omitempty"`
+	MetricAllowlist []prometheusMetricAllowlist    `json:"metricAllowlist,omitempty"`
+	Lifecycle       string                         `json:"lifecycle"`
+}
+
+type prometheusTargetProofEvidence struct {
+	Authentication   string   `json:"authentication"`
+	Authorization    string   `json:"authorization"`
+	TLS              string   `json:"tls"`
+	NetworkPolicy    string   `json:"networkPolicy"`
+	SchemaInspection string   `json:"schemaInspection"`
+	Unresolved       []string `json:"unresolved"`
+}
+
+type prometheusMetricAllowlist struct {
+	Family         string   `json:"family"`
+	Purpose        string   `json:"purpose"`
+	ObservedLabels []string `json:"observedLabels"`
+	RetainedLabels []string `json:"retainedLabels"`
+	RemovedLabels  []string `json:"removedLabels"`
+	Cardinality    string   `json:"cardinality"`
 }
 
 func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 	matrix, _ := readPrometheusTargetMatrix(t)
 
-	if matrix.Version != "h8.4c0" {
+	if matrix.Version != "h8.4c-k-proof" {
 		t.Errorf("target matrix version = %q", matrix.Version)
 	}
 	if matrix.Global.ScrapeInterval != defaultScrapeInterval ||
@@ -157,6 +177,87 @@ func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 	}
 	if !reflect.DeepEqual(gotStatuses, wantStatuses) {
 		t.Errorf("target statuses = %#v, want %#v", gotStatuses, wantStatuses)
+	}
+}
+
+func TestH84CKNodeTargetsRemainEvidenceBackedAndDeferred(t *testing.T) {
+	matrix, _ := readPrometheusTargetMatrix(t)
+
+	wantFamilies := map[string][]string{
+		kubeletTarget: {
+			"kubelet_pleg_relist_duration_seconds",
+			"kubelet_running_containers",
+			"kubelet_running_pods",
+			"kubelet_runtime_operations_errors_total",
+			"kubelet_runtime_operations_total",
+		},
+		cadvisorTarget: {
+			"container_cpu_usage_seconds_total",
+			"container_memory_working_set_bytes",
+		},
+	}
+	for jobID, expectedFamilies := range wantFamilies {
+		job := findPrometheusTarget(t, matrix.Jobs, jobID)
+		if job.Status != deferredTargetStatus ||
+			!strings.Contains(job.OwnerBatch, "H8.4C-KR") ||
+			!strings.Contains(job.DeferredReason, "Implementation remains forbidden") {
+			t.Errorf("job %q deferral = %#v", jobID, job)
+		}
+		if job.ProofEvidence == nil ||
+			len(job.ProofEvidence.Unresolved) == 0 ||
+			!strings.Contains(job.ProofEvidence.Authorization, "nodes/metrics get") ||
+			!strings.Contains(job.ProofEvidence.SchemaInspection, "no values") {
+			t.Errorf("job %q proof evidence = %#v", jobID, job.ProofEvidence)
+		}
+		joinedUnresolved := strings.Join(job.ProofEvidence.Unresolved, "\n")
+		if !strings.Contains(joinedUnresolved, "certificate") ||
+			(!strings.Contains(strings.ToLower(joinedUnresolved), "networkpolicy") &&
+				!strings.Contains(strings.ToLower(joinedUnresolved), "kube-router")) {
+			t.Errorf("job %q unresolved proof = %#v", jobID, job.ProofEvidence.Unresolved)
+		}
+
+		gotFamilies := make([]string, 0, len(job.MetricAllowlist))
+		for _, metric := range job.MetricAllowlist {
+			gotFamilies = append(gotFamilies, metric.Family)
+			if metric.Purpose == "" || metric.Cardinality == "" ||
+				len(metric.RetainedLabels) == 0 {
+				t.Errorf("job %q metric policy is incomplete: %#v", jobID, metric)
+			}
+			for _, forbidden := range []string{
+				"id",
+				"image",
+				"image_id",
+				"container_id",
+				"name",
+				"pod_uid",
+			} {
+				if slices.Contains(metric.RetainedLabels, forbidden) {
+					t.Errorf(
+						"job %q metric %q retains unsafe label %q",
+						jobID,
+						metric.Family,
+						forbidden,
+					)
+				}
+			}
+		}
+		slices.Sort(gotFamilies)
+		slices.Sort(expectedFamilies)
+		if !reflect.DeepEqual(gotFamilies, expectedFamilies) {
+			t.Errorf(
+				"job %q candidate metric families = %#v, want %#v",
+				jobID,
+				gotFamilies,
+				expectedFamilies,
+			)
+		}
+	}
+
+	cadvisor := findPrometheusTarget(t, matrix.Jobs, cadvisorTarget)
+	for _, metric := range cadvisor.MetricAllowlist {
+		if strings.Contains(metric.Family, "network") {
+			t.Errorf("cAdvisor prematurely accepts network family %q", metric.Family)
+		}
 	}
 }
 
@@ -346,6 +447,23 @@ func assertCompletePrometheusTargetDesign(
 	} else if job.DeferredReason != "" {
 		t.Errorf("accepted job %q has deferred reason %q", job.ID, job.DeferredReason)
 	}
+}
+
+func findPrometheusTarget(
+	t *testing.T,
+	jobs []prometheusTargetDesign,
+	id string,
+) *prometheusTargetDesign {
+	t.Helper()
+
+	for index := range jobs {
+		if jobs[index].ID == id {
+			return &jobs[index]
+		}
+	}
+	t.Fatalf("Prometheus target %q not found", id)
+
+	return nil
 }
 
 func relabelSequenceFailsClosed(sequence []string) bool {

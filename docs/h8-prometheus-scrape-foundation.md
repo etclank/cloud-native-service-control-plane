@@ -111,8 +111,12 @@ configuration. Full local `promtool check config` cannot stat the standard
 in-cluster projected token path, which is intentionally absent outside a Pod;
 no token file was created or accessed.
 
-Kubelet and cAdvisor jobs, TCP 10250 access, and metric allowlists remain
-deferred to H8.4C-K. GitOps registration is deferred to H8.4D, and live
-synchronization, target health, TSDB, resource-soak, and rollback evidence are
-deferred to H8.4E. No live deployment or scrape occurred. Prometheus remains
-disabled by default, and H8.4 remains incomplete.
+H8.4C-K subsequently proved the exact `nodes/metrics get` authorization
+contract and recorded bounded kubelet and cAdvisor family candidates, but
+could not close the exact serving-certificate or Pod-to-node NetworkPolicy
+proof. Both jobs and TCP 10250 remain deferred to the controlled H8.4C-KR
+follow-up documented in
+[`h8-kubelet-cadvisor-proof-follow-up.md`](h8-kubelet-cadvisor-proof-follow-up.md).
+GitOps registration remains blocked rather than proceeding to H8.4D. No live
+deployment or scrape occurred. Prometheus remains disabled by default, and
+H8.4 remains incomplete.

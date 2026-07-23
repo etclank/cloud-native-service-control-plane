@@ -668,9 +668,14 @@ unchanged; no GitOps resource or live resource changes in this repository
 slice. The exact configuration, render evidence, and remaining boundaries are
 recorded in
 [`h8-prometheus-scrape-foundation.md`](h8-prometheus-scrape-foundation.md).
-H8.4C-K still owns kubelet/cAdvisor prerequisites and allowlists. H8.4D owns
-restricted GitOps registration, H8.4E owns live validation, and H8.4 remains
-incomplete.
+H8.4C-K proved the `nodes/metrics get` authorization contract and derived
+bounded kubelet and cAdvisor family candidates. Exact kubelet serving
+certificate evidence and kube-router Pod-to-node TCP 10250 enforcement remain
+unproven, so both jobs remain deferred. The evidence and explicit H8.4C-KR
+follow-up boundary are recorded in
+[`h8-kubelet-cadvisor-proof-follow-up.md`](h8-kubelet-cadvisor-proof-follow-up.md).
+H8.4D restricted GitOps registration remains blocked; H8.4E still owns live
+validation, and H8.4 remains incomplete.
 
 No new Hetzner firewall rule is needed. Ports 3000, 9090, 3100, 3200, 4317,
 and 4318 remain non-public. If Grafana is ever exposed later, it requires an

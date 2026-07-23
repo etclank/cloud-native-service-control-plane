@@ -1,5 +1,5 @@
 {
-  "version": "h8.4c0",
+  "version": "h8.4c-k-proof",
   "global": {
     "scrapeInterval": "30s",
     "evaluationInterval": "30s",
@@ -414,8 +414,8 @@
       "id": "kubelet",
       "status": "deferred",
       "purpose": "Provide node and kubelet process metrics after authentication, policy routing, and cardinality are proven.",
-      "ownerBatch": "H8.4C-K kubelet/cAdvisor prerequisite and allowlist follow-up",
-      "deferredReason": "Read-only metadata proves node InternalIP 142.132.178.45 and kubelet port 10250, but it cannot prove bearer authorization, TLS endpoint behavior, kube-router's effective 10250 policy destination, or an accepted metric-name and label allowlist without controlled traffic.",
+      "ownerBatch": "H8.4C-KR controlled kubelet certificate and NetworkPolicy proof follow-up",
+      "deferredReason": "H8.4C-K proved the nodes/metrics authorization contract, projected ServiceAccount authentication compatibility, strict-TLS compatibility through the healthy in-cluster metrics-server, and a bounded metric-family candidate set. It could not inspect the exact serving certificate or prove kube-router's effective Pod-to-node TCP 10250 enforcement because direct 10250 was firewall-blocked and the approved SSH identity was unavailable. Implementation remains forbidden.",
       "namespace": "cluster node portfolio-k3s-01",
       "ownerObject": "Node/portfolio-k3s-01",
       "service": "none",
@@ -439,30 +439,106 @@
       "path": "/metrics",
       "interval": "60s",
       "timeout": "15s",
-      "authentication": "proposed bearer token from the Prometheus ServiceAccount projected mount; authorization not yet proven",
+      "authentication": "accepted design input: bearer token from the standard Prometheus ServiceAccount projected mount; the healthy metrics-server proves current K3s TokenReview compatibility, but no Prometheus token was created or accessed",
       "tokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token",
-      "tlsVerification": "proposed insecure_skip_verify=true only for the current single-node baseline; not approved until the endpoint proof",
+      "tlsVerification": "strict verification is preferred and the healthy metrics-server uses InternalIP without an insecure-TLS flag, but the exact kubelet serving certificate subject, issuer, validity and SAN were not directly inspected; no TLS setting is approved for implementation",
       "targetLabels": [
         "job",
         "instance",
         "node"
       ],
       "rbac": [
-        "deferred proposed core/nodes get,list,watch",
-        "deferred proposed core/nodes/metrics get"
+        "deferred proposed core/nodes get,list,watch only if node discovery is retained",
+        "proven endpoint authorization requirement core/nodes/metrics get; not granted while the job remains deferred"
       ],
       "networkPolicy": [
         "none in H8.4C; a future rule may use only the separately proven exact /32 and TCP 10250"
       ],
-      "metricPolicy": "Deferred until a use-case-derived metric-name allowlist and stable label allowlist are reviewed.",
+      "metricPolicy": "A bounded candidate allowlist was derived from one authorized schema-only /metrics request. It remains inactive until the serving-certificate and NetworkPolicy proof gates close.",
+      "proofEvidence": {
+        "authentication": "The live K3s metrics-server is Ready, authenticates to kubelets with its ServiceAccount identity, and successfully publishes fresh node CPU and memory through metrics.k8s.io.",
+        "authorization": "Kubernetes v1.36 maps GET /metrics and GET /metrics/* to core nodes/metrics get. nodes/proxy is both unnecessary and unsafe. The future Prometheus identity currently has none of the deferred node permissions.",
+        "tls": "The live metrics-server selects InternalIP and has no kubelet-insecure-tls flag, proving strict TLS works for its path. Direct certificate inspection was unavailable: TCP 10250 was blocked from the workstation, no serving CSR existed, and SSH public-key authentication failed.",
+        "networkPolicy": "H8.4B0 proves 142.132.178.45/32 as the post-DNAT node destination for API TCP 6443, but no Pod-to-node TCP 10250 policy case has been run. Reusing that result for a different port and host process would be inference, not proof.",
+        "schemaInspection": "One API-proxied /metrics request retained only selected family names and label-key names; no values, timestamps or raw payload were retained.",
+        "unresolved": [
+          "exact kubelet serving-certificate subject, issuer, validity and SAN",
+          "strict verification and optional server_name configuration for Prometheus itself",
+          "effective kube-router enforcement of exact 142.132.178.45/32 TCP 10250 from the Prometheus Pod identity"
+        ]
+      },
+      "metricAllowlist": [
+        {
+          "family": "kubelet_running_pods",
+          "purpose": "running Pod count and kubelet workload stability",
+          "observedLabels": [],
+          "retainedLabels": [
+            "node"
+          ],
+          "removedLabels": [],
+          "cardinality": "one series for the exact single node"
+        },
+        {
+          "family": "kubelet_running_containers",
+          "purpose": "running container count by bounded lifecycle state",
+          "observedLabels": [
+            "container_state"
+          ],
+          "retainedLabels": [
+            "node",
+            "container_state"
+          ],
+          "removedLabels": [],
+          "cardinality": "container_state is a kubelet-defined bounded state dimension"
+        },
+        {
+          "family": "kubelet_runtime_operations_total",
+          "purpose": "container-runtime operation rate and stability",
+          "observedLabels": [
+            "operation_type"
+          ],
+          "retainedLabels": [
+            "node",
+            "operation_type"
+          ],
+          "removedLabels": [],
+          "cardinality": "operation_type is a kubelet-defined bounded operation dimension"
+        },
+        {
+          "family": "kubelet_runtime_operations_errors_total",
+          "purpose": "container-runtime operation error rate",
+          "observedLabels": [
+            "operation_type"
+          ],
+          "retainedLabels": [
+            "node",
+            "operation_type"
+          ],
+          "removedLabels": [],
+          "cardinality": "shares the bounded operation_type dimension"
+        },
+        {
+          "family": "kubelet_pleg_relist_duration_seconds",
+          "purpose": "PLEG relist latency and kubelet runtime-health degradation",
+          "observedLabels": [
+            "le"
+          ],
+          "retainedLabels": [
+            "node",
+            "le"
+          ],
+          "removedLabels": [],
+          "cardinality": "fixed Prometheus histogram buckets plus sum and count for one node"
+        }
+      ],
       "lifecycle": "The future job must be re-reviewed after node replacement, readdressing, K3s or kube-router changes, kubelet certificate/authentication changes, or a multi-node transition."
     },
     {
       "id": "cadvisor",
       "status": "deferred",
       "purpose": "Provide bounded container resource metrics after the shared kubelet boundary and a cAdvisor-specific metric allowlist are proven.",
-      "ownerBatch": "H8.4C-K kubelet/cAdvisor prerequisite and allowlist follow-up",
-      "deferredReason": "It shares the unproven kubelet authentication, TLS, and NetworkPolicy boundary, and no accepted cAdvisor metric-name and label allowlist exists.",
+      "ownerBatch": "H8.4C-KR controlled kubelet certificate and NetworkPolicy proof follow-up",
+      "deferredReason": "H8.4C-K proved the shared nodes/metrics authorization contract and observed a small cAdvisor CPU, working-set memory and network schema. Exact serving-certificate and kube-router TCP 10250 proof remain unavailable, and the network interface dimension is not yet safe enough to accept network families. Implementation remains forbidden.",
       "namespace": "cluster node portfolio-k3s-01",
       "ownerObject": "Node/portfolio-k3s-01 kubelet",
       "service": "none",
@@ -486,22 +562,85 @@
       "path": "/metrics/cadvisor",
       "interval": "60s",
       "timeout": "15s",
-      "authentication": "proposed bearer token from the Prometheus ServiceAccount projected mount; authorization not yet proven",
+      "authentication": "accepted design input: bearer token from the standard Prometheus ServiceAccount projected mount; the healthy metrics-server proves current K3s TokenReview compatibility, but no Prometheus token was created or accessed",
       "tokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token",
-      "tlsVerification": "proposed insecure_skip_verify=true only for the current single-node baseline; not approved until the endpoint proof",
+      "tlsVerification": "strict verification is preferred and the healthy metrics-server uses InternalIP without an insecure-TLS flag, but the exact kubelet serving certificate subject, issuer, validity and SAN were not directly inspected; no TLS setting is approved for implementation",
       "targetLabels": [
         "job",
         "instance",
         "node"
       ],
       "rbac": [
-        "deferred proposed core/nodes get,list,watch",
-        "deferred proposed core/nodes/metrics get"
+        "deferred proposed core/nodes get,list,watch only if node discovery is retained",
+        "proven endpoint authorization requirement core/nodes/metrics get; not granted while the job remains deferred"
       ],
       "networkPolicy": [
         "none in H8.4C; a future rule may use only the separately proven exact /32 and TCP 10250"
       ],
-      "metricPolicy": "Deferred until a use-case-derived metric-name allowlist excludes volatile container IDs, image IDs, pod UIDs, and unneeded high-cardinality cgroup series.",
+      "metricPolicy": "A bounded CPU and working-set memory candidate allowlist was derived from one authorized schema-only /metrics/cadvisor request. Network families remain excluded because the interface dimension was observed but its safe value boundary was not retained or proven.",
+      "proofEvidence": {
+        "authentication": "The shared kubelet TokenReview authentication evidence is identical to the kubelet job.",
+        "authorization": "Kubernetes v1.36 maps GET /metrics/cadvisor under /metrics/* to core nodes/metrics get; nodes/proxy is unnecessary and unsafe.",
+        "tls": "The shared direct kubelet certificate proof remains incomplete.",
+        "networkPolicy": "The shared Pod-to-node TCP 10250 enforcement proof remains incomplete.",
+        "schemaInspection": "One API-proxied /metrics/cadvisor request retained only selected family names and label-key names; no values, timestamps or raw payload were retained.",
+        "unresolved": [
+          "all shared kubelet certificate and NetworkPolicy questions",
+          "safe interface-value allowlisting for container network receive and transmit families"
+        ]
+      },
+      "metricAllowlist": [
+        {
+          "family": "container_cpu_usage_seconds_total",
+          "purpose": "Pod and container CPU consumption",
+          "observedLabels": [
+            "container",
+            "cpu",
+            "id",
+            "image",
+            "name",
+            "namespace",
+            "pod"
+          ],
+          "retainedLabels": [
+            "node",
+            "namespace",
+            "pod",
+            "container",
+            "cpu"
+          ],
+          "removedLabels": [
+            "id",
+            "image",
+            "name"
+          ],
+          "cardinality": "namespace, pod and container are required workload dimensions; cpu is bounded by the reviewed two-core node; runtime and image identities are removed"
+        },
+        {
+          "family": "container_memory_working_set_bytes",
+          "purpose": "Pod and container working-set memory consumption",
+          "observedLabels": [
+            "container",
+            "id",
+            "image",
+            "name",
+            "namespace",
+            "pod"
+          ],
+          "retainedLabels": [
+            "node",
+            "namespace",
+            "pod",
+            "container"
+          ],
+          "removedLabels": [
+            "id",
+            "image",
+            "name"
+          ],
+          "cardinality": "one bounded workload series per node, namespace, Pod and container after volatile runtime and image identities are removed"
+        }
+      ],
       "lifecycle": "The future job must be re-reviewed after node replacement, readdressing, K3s or kube-router changes, kubelet certificate/authentication changes, or a multi-node transition."
     }
   ],
@@ -518,7 +657,7 @@
       "core/nodes/metrics get",
       "core/nodes/proxy get"
     ],
-    "rationale": "Every accepted non-static job uses fixed-namespace EndpointSlice discovery. Node discovery and node subresources have no accepted H8.4C consumer while kubelet and cAdvisor are deferred."
+    "rationale": "Every accepted non-static job uses fixed-namespace EndpointSlice discovery. H8.4C-K proved nodes/metrics get as the exact endpoint authorization requirement, but node discovery and node subresources still have no accepted consumer while certificate and NetworkPolicy proof remain unresolved."
   },
   "fixedNetworkBoundaries": {
     "kubernetesAPIEgress": "142.132.178.45/32 TCP 6443",
