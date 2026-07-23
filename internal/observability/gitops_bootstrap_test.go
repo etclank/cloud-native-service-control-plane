@@ -37,7 +37,7 @@ const (
 	argoNamespace             = "argocd"
 	bootstrapPartOf           = "cloud-native-service-control-plane"
 	clusterServer             = "https://kubernetes.default.svc"
-	observabilityRevision     = "01c2d27b2bc671ce76686ce8d60c6a0c5b70b89d"
+	observabilityRevision     = "14d483d2169352be2d196b083d963f4ffdbeabf3"
 	privateRepository         = "git@github.com:etclank/cloud-native-service-control-plane.git"
 	observabilityProjectKind  = "AppProject"
 	observabilityAppKind      = "Application"
@@ -68,9 +68,9 @@ func TestObservabilityGitOpsBootstrap(t *testing.T) {
 
 func TestObservabilityProjectPermissionsMatchRenderedPackage(t *testing.T) {
 	project := readSingleBootstrapObject(t, "observability-project.yaml")
-	resources := renderCollectorResources(t)
-	if len(resources) != 7 {
-		t.Fatalf("rendered resource count = %d, want 7", len(resources))
+	_, resources := renderH84BCandidate(t)
+	if len(resources) != 31 {
+		t.Fatalf("rendered resource count = %d, want 31", len(resources))
 	}
 
 	wantCluster := make(map[resourcePermission]struct{})
@@ -82,7 +82,9 @@ func TestObservabilityProjectPermissionsMatchRenderedPackage(t *testing.T) {
 		}
 		permission := resourcePermission{Group: groupVersion.Group, Kind: object.GetKind()}
 		if object.GetNamespace() == "" {
-			if key != (objectKey{Kind: namespaceKind, Name: observabilityNamespace}) {
+			if object.GetKind() != namespaceKind &&
+				object.GetKind() != clusterRoleKind &&
+				object.GetKind() != clusterRoleBindingKind {
 				t.Errorf("unexpected cluster-scoped object: %#v", key)
 			}
 			wantCluster[permission] = struct{}{}
@@ -114,7 +116,7 @@ func TestObservabilityProjectPermissionsMatchRenderedPackage(t *testing.T) {
 		}
 	}
 
-	t.Log("AppProject permissions cannot restrict Namespace by object name; the immutable chart render contains only Namespace/observability")
+	t.Log("AppProject permissions exactly match the immutable enabled H8 render; Namespace permission cannot be restricted by object name")
 }
 
 func TestObservabilityBootstrapIsRepositoryInert(t *testing.T) {
@@ -202,7 +204,10 @@ func assertObservabilityApplication(t *testing.T, application *unstructured.Unst
 	if got := nestedString(t, helm, "releaseName"); got != observabilityNamespace {
 		t.Errorf("Helm releaseName = %q", got)
 	}
-	if got := nestedStringSlice(t, helm, "valueFiles"); !reflect.DeepEqual(got, []string{"values.yaml"}) {
+	if got := nestedStringSlice(t, helm, "valueFiles"); !reflect.DeepEqual(got, []string{
+		"values.yaml",
+		candidateValuesFile,
+	}) {
 		t.Errorf("Helm valueFiles = %#v", got)
 	}
 	passCredentials, found, err := unstructured.NestedBool(helm, "passCredentials")

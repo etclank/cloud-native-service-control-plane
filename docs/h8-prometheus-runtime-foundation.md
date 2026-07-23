@@ -158,12 +158,14 @@ No Application or AppProject change was part of H8.4B/C.
 H8.4C completed all six real scrape jobs, Kubernetes service-discovery
 configuration, relabeling/cardinality controls, target-specific Prometheus
 egress, operator metrics ingress, Collector metrics exposure, and workload
-metrics Services. H8.4D owns restricted GitOps registration changes.
+metrics Services. H8.4D completes the restricted GitOps registration changes.
 H8.4E owns live synchronization, API/RBAC/NetworkPolicy checks, PVC binding,
 target health, TSDB cap observation, resource soak, and rollback evidence.
 
 No live deployment, synthetic scrape, token inspection, Secret access, Argo
 operation, public exposure, or later H8 implementation occurred in H8.4B.
-H8.4B/C are complete as a disabled repository candidate. Prometheus is not
-deployed, and H8 remains incomplete until H8.4D preparation, H8.4E live
-validation, and H8.4F closeout finish.
+H8.4B/C are complete as a disabled repository candidate. H8.4D's restricted
+manual-sync preparation and PVC-preserving rollback boundary are recorded in
+[`h8-prometheus-gitops-deployment-preparation.md`](h8-prometheus-gitops-deployment-preparation.md).
+Prometheus is not deployed, and H8 remains incomplete until H8.4E live
+validation and H8.4F closeout finish.

@@ -110,7 +110,7 @@ It must not be described as a highly available production platform unless the ar
 
 **Public Kubernetes target:** Single-node K3s
 
-**Current phase:** H8 in progress; H8.4 Prometheus is next
+**Current phase:** H8 in progress; repository-side H8.4 is complete and H8.4E Prometheus live validation is next
 
 The live environment includes private Argo CD administration, the
 `ManagedService` CRD and operator, the authenticated control-plane API, the

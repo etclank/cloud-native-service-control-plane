@@ -2352,10 +2352,14 @@ resource identities, procedural history, and exact case timestamps, is in
 The original Gate 3V remains procedurally failed; Gate 3V-D diagnosed the
 dataplane behavior, and Gate 3V-R is the authoritative passing execution.
 
-H8.3 is complete, but H8 is not. Only the `nop` exporter is enabled, no
-production workload exports telemetry, and no data is persisted or externally
-exported. H8.4 Prometheus is the next planned slice and requires a separate
-resource, security, GitOps, and rollback review.
+H8.3 is complete, and the repository-side H8.4 Prometheus runtime, six-job
+scrape configuration, restricted GitOps preparation, and PVC-preserving
+rollback plan are complete. Only the `nop` Collector exporter is live, no
+production workload exports telemetry, and Prometheus is not yet deployed.
+H8.4E owns the separately authorized manual synchronization and live
+validation; H8.4F owns evidence/documentation closeout. Kubelet, cAdvisor,
+Loki, Tempo, Grafana, and other additional backends are optional post-H8
+enhancements.
 
 # Operational Concepts Learned Through H1–H8.3
 

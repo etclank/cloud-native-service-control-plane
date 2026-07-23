@@ -334,11 +334,10 @@ port. The existing post-DNAT Kubernetes API rule remains exactly
 CIDRs, unrestricted same-namespace traffic, `0.0.0.0/0`, Internet egress, and
 port ranges remain prohibited.
 
-This closure changes no rendered object. H8.4C owns implementation of the six
-accepted jobs, their exact exposure and policy rules, and the RBAC reduction.
-H8.4D GitOps registration and H8.4E live synchronization and scrape validation
-remain separate later gates. The superseding scope decision makes H8.4D
-executable without node scraping. Prometheus is not deployed and H8 remains
+H8.4C implements the six accepted jobs, their exact exposure and policy rules,
+and the RBAC reduction. H8.4D subsequently completes the repository GitOps
+preparation without node scraping. H8.4E live synchronization and scrape
+validation remains a separate gate. Prometheus is not deployed and H8 remains
 incomplete.
 
 ### 5.2 Logs
@@ -661,9 +660,8 @@ one Recreate replica, and a 300-second termination grace period for TSDB/WAL
 shutdown. The detailed candidate inventory and rollback boundary are recorded
 in
 [`h8-prometheus-runtime-foundation.md`](h8-prometheus-runtime-foundation.md).
-H8.4C still owns every scrape job and target-specific egress rule, and H8.4D
-still owns the exact AppProject permission delta and inert Application
-revision change.
+H8.4C owns every scrape job and target-specific egress rule. H8.4D completes
+the exact AppProject permission delta and inert Application revision change.
 
 H8.4C now implements the six accepted jobs in the disabled candidate, reduces
 discovery RBAC to the exact job consumers, and adds the internal metrics ports
@@ -681,8 +679,17 @@ was unavailable. The final scope decision makes both jobs optional post-H8
 enhancements rather than acceptance requirements. H8.4C-KR3 and H8.4C-KI are
 cancelled as H8 dependencies. The evidence is recorded in
 [`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).
-H8.4D restricted GitOps registration is executable; H8.4E still owns live
-validation, and H8 remains incomplete until deployment and closeout finish.
+H8.4D restricted GitOps registration is complete repository-side; H8.4E still
+owns live validation, and H8 remains incomplete until deployment and closeout
+finish.
+
+H8.4D uses the immutable H8.4B/C revision and the explicit enabling value file
+while leaving the ordinary default render disabled. Its AppProject grants only
+the additional `Deployment`, `PersistentVolumeClaim`, `ClusterRole`, and
+`ClusterRoleBinding` kinds present in the 31-object render. The Application
+remains manual-sync with no prune or self-heal. The live prerequisites,
+PVC-preserving rollback boundary, and operator sequence are recorded in
+[`h8-prometheus-gitops-deployment-preparation.md`](h8-prometheus-gitops-deployment-preparation.md).
 
 No new Hetzner firewall rule is needed. Ports 3000, 9090, 3100, 3200, 4317,
 and 4318 remain non-public. If Grafana is ever exposed later, it requires an
@@ -770,6 +777,14 @@ backends together.
 | H8.10 retention/resource/security validation | policy tests, rendered-budget checks, validation notes | read-only inspection over at least 72h; configuration corrections only through Git/manual sync | expiry, compaction, disk slope, memory/CPU, immutable images, RBAC, NetworkPolicy, Pod Security, and private exposure all pass; disable newest/noisiest pipeline on failure | 0 |
 | H8.11 documentation closeout | README, infrastructure context, build guide, operator guide, H8 closeout/runbook | forbidden except separately reviewed GitOps changes already validated | all H8 exit criteria linked to sanitized evidence; docs revert has no runtime effect | 0 |
 
+The final H8 scope supersedes the table's earlier H8.5-H8.11 expansion plan.
+Loki, Tempo, Grafana, additional dashboards/alerts, end-to-end export, and the
+long-retention backend program are optional post-H8 enhancements. H8 ends
+after:
+
+- H8.4E manually synchronizes and validates the prepared Prometheus package;
+- H8.4F records the sanitized deployment evidence and documentation closeout.
+
 Implementation status as of 2026-07-22:
 
 - H8.1 and H8.2 are complete.
@@ -779,15 +794,15 @@ Implementation status as of 2026-07-22:
   recorded in
   [`h8-collector-deployment-closeout.md`](h8-collector-deployment-closeout.md).
 - Only the `nop` exporter is enabled, and no production workload exports OTLP.
-- H8.4 Prometheus is the next planned slice. H8.5 through H8.11 and the H8
-  parent phase remain incomplete.
+- H8.4A-D repository development is complete. The immutable six-job package,
+  restricted manual-sync GitOps definitions, and PVC-preserving rollback
+  boundary are ready.
+- H8.4E live synchronization/validation and H8.4F closeout are the only
+  remaining H8 work.
 
-The order keeps Grafana last, so backend APIs and Prometheus can validate
-signals without spending Grafana memory early. The Collector starts with no
-durable exporters; Prometheus then observes it, Loki enables the log pipeline,
-and Tempo enables traces. If the VM is not resized, stop after any slice that
-reaches the memory gate. Do not trade away the 20% node reserve merely to
-finish the diagram.
+Optional post-H8 backends remain gated by the same node reserve and staged
+measurement rules. Do not trade away the 20% node reserve merely to complete
+the earlier expansion diagram.
 
 ## 12. Go/No-Go Decision and H9 Gate
 

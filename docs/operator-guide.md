@@ -944,10 +944,11 @@ Completed:
   OTLP export.
 
 H7 platform deployment and H8.3 Collector foundation are complete. H8 remains
-in progress; H8.4 Prometheus is next, while workload OTLP enablement remains a
-separately reviewed later slice. The authoritative Collector validation record
-is [`h8-collector-deployment-closeout.md`](h8-collector-deployment-closeout.md).
-Later work will add the remaining observability backends, persistent data
+in progress; repository-side H8.4 is complete and H8.4E live validation is
+next, while workload OTLP enablement remains a separately reviewed later
+slice. The authoritative Collector validation record is
+[`h8-collector-deployment-closeout.md`](h8-collector-deployment-closeout.md).
+Optional post-H8 work may add further observability backends, persistent data
 services, backup procedures, and roadmap workloads.
 
 ## 14. Planned Final Documentation

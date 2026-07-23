@@ -94,10 +94,9 @@ its previous 10-object render was
 Those package deltas are the exact metrics ingress policies required for
 cross-namespace Prometheus access.
 
-The existing `platform-control-plane` AppProject does not yet authorize
-NetworkPolicy. H8.4D must derive the exact AppProject and inert Application
-delta before these package changes can be synchronized. H8.4C changes no
-Application or AppProject.
+H8.4C changes no Application or AppProject. H8.4D subsequently derives the
+exact observability AppProject and inert Application delta required before the
+package can be synchronized.
 
 ## Validation and deferrals
 
@@ -123,6 +122,8 @@ environment. Their certificate and policy questions remain unresolved, and
 both are optional post-H8 enhancements rather than implemented targets.
 TCP 10250 remains absent, as recorded in
 [`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).
-H8.4D is therefore executable with the accepted six jobs. No live deployment
-or scrape occurred in H8.4C. Prometheus remains disabled by default, and H8
-remains incomplete pending deployment, live validation, and closeout.
+H8.4D is therefore executable with the accepted six jobs and is completed
+repository-side by the restricted manual-sync preparation in
+[`h8-prometheus-gitops-deployment-preparation.md`](h8-prometheus-gitops-deployment-preparation.md).
+No live deployment or scrape occurred in H8.4C/D. Prometheus remains disabled
+by default, and H8 remains incomplete pending live validation and closeout.

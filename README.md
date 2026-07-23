@@ -195,16 +195,22 @@ OTLP/HTTP paths were validated, unauthorized identities and TCP 13133 were
 blocked, and the Collector remains configured with only a `nop` exporter. No
 production workload currently exports telemetry.
 
-The remaining target observability environment includes:
+The repository-side Prometheus implementation is also complete and awaiting a
+separately authorized manual deployment. It contains a standalone,
+resource-bounded Prometheus, reduced kube-state-metrics, a 3Gi local-path PVC,
+72-hour/2GB retention, six exact private scrape jobs, least-privilege RBAC,
+and restricted NetworkPolicies. Kubelet and cAdvisor are optional post-H8
+enhancements rather than H8 completion requirements.
 
-- Prometheus or a compatible metrics backend;
+Future post-H8 observability enhancements may include:
+
 - Loki for logs;
 - Tempo for traces;
 - Grafana dashboards;
-- Kubernetes and application telemetry;
 - a synthetic Go network probe.
 
-The final backend selection and resource limits will be validated against the small VM before the complete stack is enabled.
+H8 now requires only the controlled Prometheus live deployment/validation and
+evidence closeout. No additional backend is an H8 acceptance requirement.
 
 ### SmartEnergy
 
