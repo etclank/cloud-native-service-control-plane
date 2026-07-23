@@ -1,5 +1,12 @@
 # H8.4C-KR2 Kubelet Certificate and NetworkPolicy Proof
 
+> Superseded completion decision: the unresolved findings below remain valid,
+> but kubelet and cAdvisor were subsequently removed from H8 acceptance by the
+> deliberate
+> [H8.4 final scope decision](h8-prometheus-scope-decision.md). They are
+> optional post-H8 enhancements. H8.4C-KR3 and H8.4C-KI are cancelled, and
+> this proof no longer blocks H8.4D.
+
 H8.4C-KR2 retried the two shared proof properties that block the `kubelet`
 and `cadvisor` Prometheus jobs:
 
@@ -134,17 +141,12 @@ the kubelet host process. No TCP 10250 policy is accepted or implemented.
 | kube-router Pod-to-local-node TCP 10250 enforcement | still unproven |
 | `kubelet` job | deferred, not implemented |
 | `cadvisor` job | deferred, not implemented |
-| H8.4D GitOps registration | blocked |
+| H8.4D GitOps registration | executable under the superseding six-target scope decision |
 
-The next concrete proof owner is **H8.4C-KR3 non-interactive read-only host
-evidence follow-up**. Before that batch, the user must either establish
-narrowly scoped passwordless sudo for the already reviewed public
-certificate, listener, route, and netfilter inspection commands, or provide
-equivalent directly observed public metadata through a separately reviewed
-method. The agent must not request a sudo password or broaden host privilege.
-If neither method is acceptable, the roadmap needs an explicit decision gate
-between authorizing a narrowly scoped deployment-specific validation and
-changing the mandatory H8.4 target scope.
+The earlier next-owner decision is superseded. H8.4C-KR3 and H8.4C-KI are
+cancelled as H8 dependencies. A future optional node-target enhancement would
+still need directly observed certificate and enforcement evidence, but no
+further node proof is required for H8.4D.
 
-H8.4C-KI is not executable. H8.4D remains blocked while either mandatory node
-job is deferred. Prometheus remains disabled, undeployed, and incomplete.
+Prometheus remains disabled and undeployed at this repository decision point.
+H8 remains incomplete pending deployment, live validation, and closeout.

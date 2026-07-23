@@ -1,9 +1,11 @@
 # H8.4B Prometheus Runtime Security Foundation
 
 H8.4B defines the repository-only Prometheus and kube-state-metrics runtime
-candidate. It does not enable either dependency in the production
-`values.yaml`, change the observability Argo CD Application, or deploy a live
-resource. H8.4 and the Prometheus deployment remain incomplete.
+foundation. H8.4C subsequently replaced its inert scrape placeholder with the
+accepted six-job configuration. Neither dependency is enabled in the ordinary
+`values.yaml`, and no live resource was deployed by either repository slice.
+H8 remains incomplete pending GitOps preparation, live validation, and
+closeout.
 
 ## Configuration and architecture
 
@@ -15,7 +17,7 @@ The wrapper chart is version 0.5.0 and retains the locked dependencies:
 
 Both new dependencies remain disabled by default. The
 `values-h8.4b-candidate.yaml` fixture sets only their two `enabled` flags and
-is used for deterministic local review. Argo CD references only `values.yaml`.
+is used for deterministic local review and the intended H8.4D GitOps overlay.
 The Prometheus chart's bundled kube-state-metrics, Alertmanager,
 node-exporter, Pushgateway, config reloader, and test hooks remain disabled.
 The direct kube-state-metrics chart has no RBAC proxy, ServiceMonitor,
@@ -24,11 +26,10 @@ container.
 
 Prometheus is one standalone Deployment using the chart's Recreate strategy.
 It is neither highly available nor an Operator-managed StatefulSet. There is
-no federation, remote read, remote write, public endpoint, or H8.4C scrape
-configuration. The rendered ConfigMap has one temporary
-`h8-4b-inert-no-targets` job with an empty `static_configs` list. It cannot
-contact a target. The chart's lifecycle reload flag is disabled because no
-config-reloader sidecar is present.
+no federation, remote read, remote write, or public endpoint. H8.4C's rendered
+ConfigMap contains exactly the six jobs accepted by the
+[final target scope](h8-prometheus-scope-decision.md). The chart's lifecycle
+reload flag is disabled because no config-reloader sidecar is present.
 
 ## Storage, retention, and resources
 
@@ -54,8 +55,8 @@ retention automatically. Stop ingestion, preserve evidence, and review node
 space, the claim, and recovery separately. Deleting the Deployment leaves the
 PVC object only when pruning does not include it. An explicit Argo prune or
 PVC deletion can trigger the `local-path` StorageClass `Delete` reclaim
-boundary and permanent data loss. H8.4D must review this consequence before
-registration or synchronization; automated prune remains forbidden.
+boundary and permanent data loss. H8.4D must preserve this consequence in its
+rollback plan; automated prune remains forbidden.
 
 Prometheus receives a 300-second termination grace period so its normal signal
 handling can flush and close the TSDB/WAL. It has no preStop hook or second
@@ -82,9 +83,8 @@ Upstream RBAC generation is disabled. Repository-owned rules are:
 
 | Identity | API group | Resources | Verbs | Reason |
 | --- | --- | --- | --- | --- |
-| Prometheus | core | `namespaces`, `nodes`, `pods`, `services` | `get`, `list`, `watch` | accepted initial discovery inventory |
+| Prometheus | core | `pods`, `services` | `get`, `list`, `watch` | exact fixed-namespace EndpointSlice target validation |
 | Prometheus | `discovery.k8s.io` | `endpointslices` | `get`, `list`, `watch` | EndpointSlice discovery |
-| Prometheus | core | `nodes/metrics`, `nodes/proxy` | `get` | accepted future kubelet/cAdvisor access |
 | Prometheus | existing `platform-operator-metrics-reader` ClusterRole | non-resource `/metrics` | `get` | authenticated controller-runtime metrics |
 | kube-state-metrics | core | `namespaces`, `nodes`, `persistentvolumeclaims`, `pods` | `list`, `watch` | exact enabled collectors |
 | kube-state-metrics | `apps` | `daemonsets`, `deployments`, `replicasets`, `statefulsets` | `list`, `watch` | exact enabled collectors |
@@ -125,16 +125,15 @@ absent. Rediscover the endpoint after node replacement or readdressing,
 EndpointSlice or API-port change, server topology change, K3s upgrade, or
 CNI/NetworkPolicy reconfiguration.
 
-Prometheus TCP 9090 has no ingress allowance because H8.4B has no approved
-consumer. kube-state-metrics ingress is preselected for the future Prometheus
-identity, but Prometheus has no corresponding scrape egress yet, so the path
-is not open end to end. H8.4C must add exact target egress alongside each
-approved scrape. It must not broaden the API rule.
+Prometheus TCP 9090 has no ingress allowance because it has no approved
+consumer. H8.4C adds exact egress and target ingress for each of its six jobs
+without broadening the API rule. The complete policy mapping is recorded in
+[`h8-prometheus-scrape-foundation.md`](h8-prometheus-scrape-foundation.md).
 
 ## Candidate object inventory and ownership
 
-The default render remains the original seven Collector objects. The explicit
-candidate render contains exactly 25 objects:
+The default render remains the original seven Collector objects. The final
+explicit H8 candidate render contains exactly 31 objects:
 
 - seven unchanged Collector-era objects: Namespace, Collector ServiceAccount,
   ConfigMap, Service and DaemonSet, default deny, and OTLP ingress;
@@ -142,28 +141,29 @@ candidate render contains exactly 25 objects:
   Service, and Deployment;
 - three direct kube-state-metrics upstream objects: ServiceAccount, ClusterIP
   Service, and Deployment;
-- ten repository-owned H8.4B objects: two ClusterRoles, three
-  ClusterRoleBindings, and five NetworkPolicies.
+- sixteen repository-owned objects: two ClusterRoles, three
+  ClusterRoleBindings, and eleven NetworkPolicies.
 
 There is no Secret, CRD, Operator, Ingress, NodePort, LoadBalancer,
-StatefulSet, extra DaemonSet, test Pod or Job, final scrape job, alert rule, or
+StatefulSet, extra DaemonSet, test Pod or Job, node scrape, alert rule, or
 recording rule.
 
-H8.4D must derive and review the exact AppProject permission delta for
+H8.4D derives and reviews the exact AppProject permission delta for
 Deployment, PersistentVolumeClaim, ClusterRole, and ClusterRoleBinding before
-changing any GitOps bootstrap definition. It must also review PVC prune and
-rollback behavior. No Application or AppProject changes are part of H8.4B.
+the GitOps bootstrap changes. It also owns PVC prune and rollback behavior.
+No Application or AppProject change was part of H8.4B/C.
 
 ## Deferred work and completion state
 
-H8.4C owns all real scrape jobs, Kubernetes service-discovery configuration,
-relabeling/cardinality controls, target-specific Prometheus egress, operator
-metrics ingress, Collector metrics exposure, workload metrics Services, and
-any validated rule files. H8.4D owns restricted GitOps registration changes.
+H8.4C completed all six real scrape jobs, Kubernetes service-discovery
+configuration, relabeling/cardinality controls, target-specific Prometheus
+egress, operator metrics ingress, Collector metrics exposure, and workload
+metrics Services. H8.4D owns restricted GitOps registration changes.
 H8.4E owns live synchronization, API/RBAC/NetworkPolicy checks, PVC binding,
 target health, TSDB cap observation, resource soak, and rollback evidence.
 
 No live deployment, synthetic scrape, token inspection, Secret access, Argo
 operation, public exposure, or later H8 implementation occurred in H8.4B.
-H8.4B is complete only as a disabled repository candidate; Prometheus is not
-deployed and H8.4 remains incomplete.
+H8.4B/C are complete as a disabled repository candidate. Prometheus is not
+deployed, and H8 remains incomplete until H8.4D preparation, H8.4E live
+validation, and H8.4F closeout finish.

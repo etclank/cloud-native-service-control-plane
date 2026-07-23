@@ -1,16 +1,31 @@
 {
-  "version": "h8.4c-kr2-proof",
-  "h84CKR2Decision": {
+  "version": "h8.4-final-six-targets",
+  "acceptedH8TargetIDs": [
+    "prometheus-self",
+    "kube-state-metrics",
+    "platform-operator",
+    "opentelemetry-collector",
+    "control-plane-api",
+    "managed-demo"
+  ],
+  "postH8OptionalTargetIDs": [
+    "kubelet",
+    "cadvisor"
+  ],
+  "h84ScopeDecision": {
     "authenticationAuthorization": "proven and accepted as a future design input",
     "metricAllowlists": "proven and accepted as bounded future design inputs",
     "kubeletServingCertificate": "still unproven",
     "networkPolicyEnforcement": "still unproven",
-    "kubeletStatus": "deferred",
-    "cadvisorStatus": "deferred",
+    "kubeletStatus": "deferred optional post-H8 enhancement",
+    "cadvisorStatus": "deferred optional post-H8 enhancement",
     "implementationStatus": "not implemented",
-    "h84DStatus": "blocked",
-    "evidenceReference": "docs/h8-kubelet-cadvisor-certificate-networkpolicy-proof.md",
-    "nextOwner": "H8.4C-KR3 non-interactive read-only host evidence follow-up after the user establishes narrowly scoped passwordless sudo or supplies equivalent directly observed public metadata"
+    "h84CKR3Status": "cancelled",
+    "h84CKIStatus": "cancelled",
+    "h84DStatus": "executable",
+    "h8Status": "incomplete pending deployment, live validation, and closeout",
+    "evidenceReference": "docs/h8-prometheus-scope-decision.md",
+    "scopeRationale": "For the personal single-node development cluster, the accepted six-job inventory is sufficient for H8. Kubelet and cAdvisor remain unproven and unimplemented optional post-H8 enhancements; this is a deliberate scope decision, not proof of their TLS or NetworkPolicy boundaries."
   },
   "global": {
     "scrapeInterval": "30s",
@@ -426,8 +441,8 @@
       "id": "kubelet",
       "status": "deferred",
       "purpose": "Provide node and kubelet process metrics after authentication, policy routing, and cardinality are proven.",
-      "ownerBatch": "H8.4C-KR3 non-interactive read-only host evidence follow-up",
-      "deferredReason": "H8.4C-KR2 proved that the configured key was loaded and the single controlled SSH authentication succeeded as eoghan on portfolio-k3s-01. The session stopped before host inspection because sudo -n required a password. Exact kubelet serving-certificate metadata and kube-router's Pod-to-local-node TCP 10250 enforcement remain unproven, so implementation remains forbidden.",
+      "ownerBatch": "Optional post-H8 enhancement",
+      "deferredReason": "The final H8 scope deliberately excludes kubelet scraping for this personal single-node development cluster. H8.4C-KR2 proved SSH authentication but not the serving-certificate or Pod-to-local-node TCP 10250 boundary. Those questions remain unresolved, no implementation is approved, and the target is not an H8 completion dependency.",
       "namespace": "cluster node portfolio-k3s-01",
       "ownerObject": "Node/portfolio-k3s-01",
       "service": "none",
@@ -550,8 +565,8 @@
       "id": "cadvisor",
       "status": "deferred",
       "purpose": "Provide bounded container resource metrics after the shared kubelet boundary and a cAdvisor-specific metric allowlist are proven.",
-      "ownerBatch": "H8.4C-KR3 non-interactive read-only host evidence follow-up",
-      "deferredReason": "H8.4C-KR2 authenticated successfully with the exact configured key, but sudo -n required a password and the authorized session stopped before certificate, route, or netfilter inspection. Exact serving-certificate and kube-router TCP 10250 proof remain unavailable, and the network interface dimension is not yet safe enough to accept network families. Implementation remains forbidden.",
+      "ownerBatch": "Optional post-H8 enhancement",
+      "deferredReason": "The final H8 scope deliberately excludes cAdvisor scraping for this personal single-node development cluster. Its shared certificate and TCP 10250 policy questions and its network-interface cardinality boundary remain unresolved. No implementation is approved, and the target is not an H8 completion dependency.",
       "namespace": "cluster node portfolio-k3s-01",
       "ownerObject": "Node/portfolio-k3s-01 kubelet",
       "service": "none",

@@ -116,9 +116,13 @@ contract and recorded bounded kubelet and cAdvisor family candidates, but
 could not close the exact serving-certificate or Pod-to-node NetworkPolicy
 proof. H8.4C-KR found that the configured SSH key was not loaded and correctly
 made no retry. H8.4C-KR2 later authenticated with that exact key, then stopped
-before host inspection because `sudo -n` required a password. Both jobs and
-TCP 10250 remain deferred to H8.4C-KR3, as recorded in
+before host inspection because `sudo -n` required a password. The
+[final H8.4 scope decision](h8-prometheus-scope-decision.md) deliberately
+removes both node jobs from H8 acceptance for this personal single-node
+environment. Their certificate and policy questions remain unresolved, and
+both are optional post-H8 enhancements rather than implemented targets.
+TCP 10250 remains absent, as recorded in
 [`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).
-GitOps registration remains blocked rather than proceeding to H8.4D. No live
-deployment or scrape occurred. Prometheus remains disabled by default, and
-H8.4 remains incomplete.
+H8.4D is therefore executable with the accepted six jobs. No live deployment
+or scrape occurred in H8.4C. Prometheus remains disabled by default, and H8
+remains incomplete pending deployment, live validation, and closeout.

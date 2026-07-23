@@ -31,6 +31,7 @@ const (
 	prometheusTargetMatrixPath = "docs/h8-prometheus-target-matrix.json"
 	acceptedTargetStatus       = "accepted"
 	deferredTargetStatus       = "deferred"
+	optionalPostH8Owner        = "Optional post-H8 enhancement"
 	prometheusSelfTarget       = "prometheus-self"
 	platformOperatorTarget     = "platform-operator"
 	controlPlaneAPITarget      = "control-plane-api"
@@ -51,8 +52,10 @@ const (
 )
 
 type prometheusTargetMatrix struct {
-	Version         string `json:"version"`
-	H84CKR2Decision struct {
+	Version             string   `json:"version"`
+	AcceptedH8TargetIDs []string `json:"acceptedH8TargetIDs"`
+	PostH8OptionalIDs   []string `json:"postH8OptionalTargetIDs"`
+	H84ScopeDecision    struct {
 		AuthenticationAuthorization string `json:"authenticationAuthorization"`
 		MetricAllowlists            string `json:"metricAllowlists"`
 		KubeletServingCertificate   string `json:"kubeletServingCertificate"`
@@ -60,10 +63,13 @@ type prometheusTargetMatrix struct {
 		KubeletStatus               string `json:"kubeletStatus"`
 		CadvisorStatus              string `json:"cadvisorStatus"`
 		ImplementationStatus        string `json:"implementationStatus"`
+		H84CKR3Status               string `json:"h84CKR3Status"`
+		H84CKIStatus                string `json:"h84CKIStatus"`
 		H84DStatus                  string `json:"h84DStatus"`
+		H8Status                    string `json:"h8Status"`
 		EvidenceReference           string `json:"evidenceReference"`
-		NextOwner                   string `json:"nextOwner"`
-	} `json:"h84CKR2Decision"`
+		ScopeRationale              string `json:"scopeRationale"`
+	} `json:"h84ScopeDecision"`
 	Global struct {
 		ScrapeInterval          string            `json:"scrapeInterval"`
 		EvaluationInterval      string            `json:"evaluationInterval"`
@@ -145,7 +151,7 @@ type prometheusMetricAllowlist struct {
 func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 	matrix, _ := readPrometheusTargetMatrix(t)
 
-	if matrix.Version != "h8.4c-kr2-proof" {
+	if matrix.Version != "h8.4-final-six-targets" {
 		t.Errorf("target matrix version = %q", matrix.Version)
 	}
 	if matrix.Global.ScrapeInterval != defaultScrapeInterval ||
@@ -178,6 +184,27 @@ func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 		kubeletTarget:             deferredTargetStatus,
 		cadvisorTarget:            deferredTargetStatus,
 	}
+	wantAcceptedIDs := []string{
+		prometheusSelfTarget,
+		kubeStateMetricsChartName,
+		platformOperatorTarget,
+		collectorChartName,
+		controlPlaneAPITarget,
+		managedDemoTarget,
+	}
+	if !reflect.DeepEqual(matrix.AcceptedH8TargetIDs, wantAcceptedIDs) {
+		t.Errorf(
+			"accepted H8 target IDs = %#v, want %#v",
+			matrix.AcceptedH8TargetIDs,
+			wantAcceptedIDs,
+		)
+	}
+	if !reflect.DeepEqual(
+		matrix.PostH8OptionalIDs,
+		[]string{kubeletTarget, cadvisorTarget},
+	) {
+		t.Errorf("post-H8 optional target IDs = %#v", matrix.PostH8OptionalIDs)
+	}
 	gotStatuses := make(map[string]string, len(matrix.Jobs))
 	for index := range matrix.Jobs {
 		job := &matrix.Jobs[index]
@@ -192,9 +219,9 @@ func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 	}
 }
 
-func TestH84CKR2RecordsExactSudoBlockerWithoutAcceptingNodeJobs(t *testing.T) {
+func TestH84ScopeDecisionDefersOptionalNodeJobsAndUnblocksGitOps(t *testing.T) {
 	matrix, raw := readPrometheusTargetMatrix(t)
-	decision := matrix.H84CKR2Decision
+	decision := matrix.H84ScopeDecision
 
 	if decision.AuthenticationAuthorization !=
 		"proven and accepted as a future design input" ||
@@ -202,30 +229,34 @@ func TestH84CKR2RecordsExactSudoBlockerWithoutAcceptingNodeJobs(t *testing.T) {
 			"proven and accepted as bounded future design inputs" ||
 		decision.KubeletServingCertificate != "still unproven" ||
 		decision.NetworkPolicyEnforcement != "still unproven" ||
-		decision.KubeletStatus != deferredTargetStatus ||
-		decision.CadvisorStatus != deferredTargetStatus ||
+		decision.KubeletStatus != "deferred optional post-H8 enhancement" ||
+		decision.CadvisorStatus != "deferred optional post-H8 enhancement" ||
 		decision.ImplementationStatus != "not implemented" ||
-		decision.H84DStatus != "blocked" {
-		t.Errorf("H8.4C-KR2 decision = %#v", decision)
+		decision.H84CKR3Status != "cancelled" ||
+		decision.H84CKIStatus != "cancelled" ||
+		decision.H84DStatus != "executable" ||
+		!strings.Contains(decision.H8Status, "live validation") {
+		t.Errorf("H8.4 scope decision = %#v", decision)
 	}
-	if !strings.Contains(decision.NextOwner, "H8.4C-KR3") ||
-		!strings.Contains(decision.NextOwner, "non-interactive read-only") {
-		t.Errorf("H8.4C-KR2 next owner = %q", decision.NextOwner)
+	if !strings.Contains(decision.ScopeRationale, "personal single-node") ||
+		!strings.Contains(decision.ScopeRationale, "deliberate scope decision") ||
+		!strings.Contains(decision.ScopeRationale, "not proof") {
+		t.Errorf("H8.4 scope rationale = %q", decision.ScopeRationale)
 	}
 	evidencePath := filepath.Join("..", "..", decision.EvidenceReference)
 	if _, err := os.Stat(evidencePath); err != nil {
-		t.Errorf("H8.4C-KR2 evidence reference %q: %v", evidencePath, err)
+		t.Errorf("H8.4 scope evidence reference %q: %v", evidencePath, err)
 	}
 
 	for _, jobID := range []string{kubeletTarget, cadvisorTarget} {
 		job := findPrometheusTarget(t, matrix.Jobs, jobID)
 		if job.Status != deferredTargetStatus ||
-			!strings.Contains(job.OwnerBatch, "H8.4C-KR3") ||
+			job.OwnerBatch != optionalPostH8Owner ||
 			!strings.Contains(
 				strings.ToLower(job.DeferredReason),
-				"implementation remains forbidden",
+				"not an h8 completion dependency",
 			) {
-			t.Errorf("job %q H8.4C-KR2 decision = %#v", jobID, job)
+			t.Errorf("job %q H8.4 scope decision = %#v", jobID, job)
 		}
 		if strings.Contains(job.TLSVerification, "accepted") ||
 			strings.Contains(job.TLSVerification, "insecure_skip_verify: true") {
@@ -235,7 +266,7 @@ func TestH84CKR2RecordsExactSudoBlockerWithoutAcceptingNodeJobs(t *testing.T) {
 			!strings.Contains(job.ProofEvidence.TLS, "authenticated") ||
 			!strings.Contains(job.ProofEvidence.TLS, "sudo -n") ||
 			!strings.Contains(job.ProofEvidence.NetworkPolicy, "sudo -n") {
-			t.Errorf("job %q H8.4C-KR2 proof = %#v", jobID, job.ProofEvidence)
+			t.Errorf("job %q preserved proof = %#v", jobID, job.ProofEvidence)
 		}
 	}
 
@@ -271,10 +302,10 @@ func TestH84CKNodeTargetsRemainEvidenceBackedAndDeferred(t *testing.T) {
 	for jobID, expectedFamilies := range wantFamilies {
 		job := findPrometheusTarget(t, matrix.Jobs, jobID)
 		if job.Status != deferredTargetStatus ||
-			!strings.Contains(job.OwnerBatch, "H8.4C-KR") ||
+			job.OwnerBatch != optionalPostH8Owner ||
 			!strings.Contains(
 				strings.ToLower(job.DeferredReason),
-				"implementation remains forbidden",
+				"not an h8 completion dependency",
 			) {
 			t.Errorf("job %q deferral = %#v", jobID, job)
 		}
@@ -516,7 +547,8 @@ func assertCompletePrometheusTargetDesign(
 		t.Errorf("job %q has an incomplete target contract: %#v", job.ID, job)
 	}
 	if job.Status == deferredTargetStatus {
-		if job.DeferredReason == "" || !strings.Contains(job.OwnerBatch, "follow-up") {
+		if job.DeferredReason == "" ||
+			job.OwnerBatch != optionalPostH8Owner {
 			t.Errorf("job %q lacks an explicit deferral owner/reason", job.ID)
 		}
 	} else if job.DeferredReason != "" {

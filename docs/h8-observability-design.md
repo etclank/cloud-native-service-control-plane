@@ -139,7 +139,7 @@ The existing H7 baseline and security boundaries are recorded in
 | Operator | controller-runtime metrics on authenticated HTTPS `:8443`; health and readiness on `:8081`; controller-runtime structured key/value logs | no Prometheus installation or scrape binding; runtime uses an ephemeral self-signed metrics certificate; no trace provider or reconciliation spans; development-mode Zap output; no explicit ManagedService outcome metric | authenticated Prometheus scrape; production JSON Zap configuration; spans around reconciliation, Deployment, Service, and status operations; bounded custom counters/histograms only where controller-runtime metrics are insufficient |
 | Control-plane API | `slog` startup/shutdown/fatal events; `/healthz` and Kubernetes-backed `/readyz`; hardened HTTP server; bearer authentication | no access logs, request ID, Prometheus endpoint, HTTP duration/status metrics, OTel provider, trace propagation, Kubernetes-client spans, or log/trace correlation | JSON request middleware that never records credentials or bodies; generated request ID; normalized-route metrics on a separate internal metrics listener; W3C trace propagation; HTTP and Kubernetes-client spans; OTLP export |
 | Managed `demo-http` | `slog` lifecycle events; `/healthz` and `/readyz`; hardened HTTP server | no access logs, request ID, metrics endpoint, tracing, propagation, or failure-span evidence | the same safe request middleware and separate internal metrics listener; server spans and OTLP export; exclude probes from normal request logs and high-volume traces |
-| Kubernetes and host | Metrics Server point-in-time CPU/memory; container stdout/stderr in K3s CRI files | no historical metrics, searchable logs, root-disk series, retained events, or telemetry correlation | Prometheus Kubernetes discovery and kubelet/cAdvisor scrapes; reduced kube-state-metrics; Collector `filelog` receiver over read-only CRI log paths |
+| Kubernetes and host | Metrics Server point-in-time CPU/memory; container stdout/stderr in K3s CRI files | no historical metrics, searchable logs, root-disk series, retained events, or telemetry correlation | Prometheus service discovery and reduced kube-state-metrics; optional post-H8 kubelet/cAdvisor review; Collector `filelog` receiver over read-only CRI log paths |
 | Observability services | none | no backend self-monitoring | Prometheus scrapes Collector, Prometheus, Loki, Tempo, Grafana, and kube-state-metrics metrics; dashboards and alert rules include ingestion failures, drops, compaction, memory, and storage |
 
 The OpenTelemetry packages currently listed indirectly in `go.mod` do not mean
@@ -177,7 +177,7 @@ labels. Route metrics use fixed route templates such as
 | Tempo | one monolithic Deployment or StatefulSet using local storage | low trace volume and operational simplicity do not justify microservices or Kafka | distributed mode, Kafka, object storage, metrics generator initially |
 | Grafana | one Deployment with SQLite on a PVC | one private UI for all three backends; dashboards and data sources remain declarative | Ingress, anonymous access, plugins, image renderer, HA database |
 | kube-state-metrics | one Deployment with an explicit collector allowlist | supplies desired/current object state and restart/PVC series that kubelet metrics do not cover cleanly | collectors unrelated to current dashboards and alerts |
-| node exporter | deferred | root filesystem metrics would be useful, but its host mounts and host namespaces widen the security boundary; kubelet/cAdvisor and read-only kubelet summary checks are enough for the first slice | revisit only after a separate Pod Security and host-access review |
+| node exporter | deferred | root filesystem metrics would be useful, but its host mounts and host namespaces widen the security boundary; the accepted six-job Prometheus inventory is sufficient for H8 | revisit only after a separate Pod Security and host-access review |
 
 The required components are Collector, Prometheus, Loki, Tempo, and Grafana.
 kube-state-metrics is **optional but selected** within the initial budget because
@@ -190,7 +190,7 @@ exporter is **deferred** for the security reason above.
 operator HTTPS /metrics -- bearer token + RBAC ----+
 API internal /metrics -----------------------------+--> Prometheus --> Grafana
 demo internal /metrics ----------------------------+
-kubelet/cAdvisor + kube-state-metrics --------------+
+reduced kube-state-metrics -------------------------+
 Collector and backend self-metrics -----------------+
 
 /var/log/pods/*/*/*.log
@@ -303,26 +303,29 @@ Request IDs, trace IDs, ManagedService names and messages, URLs, bearer
 identities, Pod UIDs, container IDs, image IDs, EndpointSlice identities, and
 arbitrary workload labels remain prohibited metric or target labels.
 
-`kubelet` and `cadvisor` are closed as **deferred**, not silently omitted.
+`kubelet` and `cadvisor` are closed as **optional post-H8 enhancements**, not
+silently omitted.
 Read-only discovery reconfirmed the single Node InternalIP
 `142.132.178.45` and advertised kubelet port 10250, but metadata cannot prove
 the ServiceAccount's kubelet authorization, the TLS endpoint behavior, or
 kube-router's effective NetworkPolicy destination for direct 10250 traffic.
 The design also lacks the required use-case-derived metric-name and stable-label
-allowlists. The exact owner is the bounded **H8.4C-K kubelet/cAdvisor
-prerequisite and allowlist follow-up**, which must complete a separately
-authorized connectivity/policy proof and approve both allowlists before either
+allowlists. The historical H8.4C-K/KR/KR2 proof records preserve these
+unresolved facts. The
+[final H8.4 scope decision](h8-prometheus-scope-decision.md) deliberately
+removes both jobs from H8 acceptance for the personal single-node environment.
+A future optional enhancement must complete a separately authorized
+connectivity/policy proof and approve both allowlists before either
 60-second/15-second job can be enabled. It may use only an exact proven `/32`
 on TCP 10250; the complete node CIDR and Kubernetes Service proxy are
 forbidden.
 
-Because the two node jobs are deferred, H8.4C must reduce the H8.4B discovery
+Because the two node jobs are outside H8 scope, H8.4C reduces the H8.4B discovery
 role to the rules actually consumed by fixed-namespace EndpointSlice discovery:
 `services` and `pods` plus `discovery.k8s.io/endpointslices`, all with only
 `get`, `list`, and `watch`. The existing operator `/metrics` non-resource
 binding remains. Namespace, Node, `nodes/metrics`, and `nodes/proxy`
-permissions have no accepted H8.4C consumer and must be removed until the
-H8.4C-K prerequisite proves they are needed.
+permissions have no accepted H8 consumer and remain absent.
 
 Every target-specific policy uses the exact Prometheus Pod selector, an exact
 target Pod selector and namespace selector where cross-namespace, TCP, and one
@@ -334,7 +337,8 @@ port ranges remain prohibited.
 This closure changes no rendered object. H8.4C owns implementation of the six
 accepted jobs, their exact exposure and policy rules, and the RBAC reduction.
 H8.4D GitOps registration and H8.4E live synchronization and scrape validation
-remain separate later gates. Prometheus is not deployed and H8.4 remains
+remain separate later gates. The superseding scope decision makes H8.4D
+executable without node scraping. Prometheus is not deployed and H8 remains
 incomplete.
 
 ### 5.2 Logs
@@ -623,7 +627,7 @@ allow only:
 - Kubernetes API access from Collector, Prometheus, and kube-state-metrics;
 - application OTLP to Collector ports 4317/4318;
 - Collector egress to Loki and Tempo;
-- Prometheus egress to approved metrics Services, Pods, and kubelet endpoints;
+- Prometheus egress to the six approved H8 metrics targets;
 - Grafana egress to Prometheus, Loki, and Tempo;
 - backend self-metrics from Prometheus;
 - no Internet ingress and no public Service type.
@@ -671,14 +675,14 @@ recorded in
 H8.4C-K proved the `nodes/metrics get` authorization contract and derived
 bounded kubelet and cAdvisor family candidates. Exact kubelet serving
 certificate evidence and kube-router Pod-to-node TCP 10250 enforcement remain
-unproven, so both jobs remain deferred. H8.4C-KR identified a precise SSH
-agent/configured-key mismatch and made no prohibited retry. H8.4C-KR2 then
-authenticated with the exact configured key, but its single session stopped
-before host inspection because non-interactive sudo was unavailable. The
-evidence and explicit H8.4C-KR3 read-only privilege boundary are recorded in
+unproven. H8.4C-KR2 authenticated with the exact configured key, but its
+single session stopped before host inspection because non-interactive sudo
+was unavailable. The final scope decision makes both jobs optional post-H8
+enhancements rather than acceptance requirements. H8.4C-KR3 and H8.4C-KI are
+cancelled as H8 dependencies. The evidence is recorded in
 [`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).
-H8.4D restricted GitOps registration remains blocked; H8.4E still owns live
-validation, and H8.4 remains incomplete.
+H8.4D restricted GitOps registration is executable; H8.4E still owns live
+validation, and H8 remains incomplete until deployment and closeout finish.
 
 No new Hetzner firewall rule is needed. Ports 3000, 9090, 3100, 3200, 4317,
 and 4318 remain non-public. If Grafana is ever exposed later, it requires an

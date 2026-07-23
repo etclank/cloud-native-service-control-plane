@@ -1,5 +1,10 @@
 # H8.4C-K Kubelet and cAdvisor Proof Follow-up
 
+> Superseded completion decision: the proof findings remain historical
+> evidence, but the
+> [H8.4 final scope decision](h8-prometheus-scope-decision.md) makes both node
+> targets optional post-H8 enhancements. They no longer block H8.4D.
+
 H8.4C-K evaluated whether the deferred `kubelet` and `cadvisor` jobs could be
 added safely to the disabled Prometheus candidate. Both remain deferred. No
 scrape job, RBAC permission, TCP 10250 policy, dependency, rendered object, or
@@ -155,6 +160,11 @@ is unresolved:
 4. a safe network-interface value boundary before cAdvisor network families
    can be accepted.
 
+These properties were mandatory under the historical node-target proposal.
+The later [final H8.4 scope decision](h8-prometheus-scope-decision.md)
+deliberately makes both jobs optional post-H8 enhancements; the unresolved
+properties no longer block H8 completion.
+
 H8.4C-KR subsequently confirmed that the intended alias and configured key
 were unambiguous, but the SSH agent held only a different public-key
 fingerprint. H8.4C-KR2 then verified the exact configured fingerprint and
@@ -162,12 +172,10 @@ authenticated successfully to `portfolio-k3s-01` as `eoghan`. Its single
 session stopped before host inspection because `sudo -n` required a password.
 The exact result and remaining boundary are recorded in
 [`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).
-The explicit future owner is **H8.4C-KR3 non-interactive read-only host
-evidence follow-up**, after the user establishes narrowly scoped passwordless
-sudo for the reviewed public-metadata commands or supplies equivalent directly
-observed evidence through a separately reviewed method. H8.4D remains blocked
-until that follow-up either accepts both jobs or the authoritative roadmap
-explicitly changes the mandatory H8.4 inventory.
+The former H8.4C-KR3 owner is cancelled by the superseding scope decision.
+Certificate and enforcement evidence would still be required for a future
+optional node-target enhancement, but H8.4D is executable with the accepted
+six-job inventory.
 
 The observability default render remains seven objects with SHA-256
 `cb441f08f11f45e914bad39271fa7198e85a21382a598ea37ad4d1e5eebf2900`.
