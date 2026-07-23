@@ -18,6 +18,10 @@ spec:
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
 
   namespaceResourceWhitelist:
     - group: ""
@@ -26,7 +30,11 @@ spec:
       kind: ServiceAccount
     - group: ""
       kind: Service
+    - group: ""
+      kind: PersistentVolumeClaim
     - group: apps
       kind: DaemonSet
+    - group: apps
+      kind: Deployment
     - group: networking.k8s.io
       kind: NetworkPolicy

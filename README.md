@@ -2,7 +2,7 @@
 
 A portfolio platform for building, deploying, operating, and observing Kubernetes-managed services with Go, Kubernetes operators, GitOps, and OpenTelemetry.
 
-> Current status: H7 platform deployment complete. The Kubebuilder operator, authenticated control-plane API, managed `demo-http` workload, immutable GHCR images, restricted GitOps delivery, and production API TLS are live. H8 observability remains future work.
+> Current status: H7 platform deployment and H8.3 Collector foundation complete. The Kubebuilder operator, authenticated control-plane API, managed `demo-http` workload, immutable GHCR images, restricted GitOps delivery, production API TLS, and a private, network-restricted OpenTelemetry Collector are live. Later H8 backends and workload OTLP export remain deferred.
 
 ## Project Purpose
 
@@ -52,6 +52,8 @@ The implemented environment currently provides:
 - a public, bearer-authenticated control-plane API at `https://api.platform.eoghanclancy.eu`;
 - production Let's Encrypt TLS, permanent HTTPS redirection, and Traefik rate limiting;
 - digest-pinned operator, API, and `demo-http` workloads.
+- a GitOps-managed OpenTelemetry Collector with restricted OTLP ingress and a
+  `nop` exporter only.
 
 Current validation endpoint:
 
@@ -125,7 +127,10 @@ SSH tunnel over restricted TCP 22
 private K3s Kubernetes API
 ```
 
-The operator, API, Argo CD, and managed `demo-http` path are implemented. The OpenTelemetry Collector, telemetry backends, Grafana, SmartEnergy, and synthetic probe remain later phases.
+The operator, API, Argo CD, managed `demo-http` path, bounded OpenTelemetry
+Collector, Prometheus, and reduced kube-state-metrics are implemented. Loki,
+Tempo, Grafana, workload OTLP export, SmartEnergy, and the synthetic probe are
+optional later work.
 
 ## Infrastructure Baseline
 
@@ -179,21 +184,28 @@ API request
   -> internal endpoint and status
 ```
 
-The live `portfolio-demo` resource reports `Available=True`, `readyReplicas=1`, and returns its configured message through the internal Service. H8 will add the telemetry portion of the architecture.
+The live `portfolio-demo` resource reports `Available=True`, `readyReplicas=1`, and returns its configured message through the internal Service. Its telemetry instrumentation is present, but production OTLP export remains disabled pending a separately reviewed later H8 slice.
 
 ### Observability
 
-The target observability environment includes:
+The private OpenTelemetry Collector, standalone Prometheus, and reduced
+kube-state-metrics are live through restricted, manual-sync GitOps. The
+Collector admits only reviewed OTLP client identities and retains only the
+`nop` exporter. Prometheus uses a 3Gi local-path PVC, 72-hour/2GB retention,
+least-privilege discovery RBAC, restricted NetworkPolicies, and exactly six
+healthy private scrape jobs. Its PVC-backed recovery and target rediscovery
+were validated. No production workload currently exports OTLP.
 
-- OpenTelemetry Collector;
-- Prometheus or a compatible metrics backend;
+Future post-H8 observability enhancements may include:
+
 - Loki for logs;
 - Tempo for traces;
 - Grafana dashboards;
-- Kubernetes and application telemetry;
 - a synthetic Go network probe.
 
-The final backend selection and resource limits will be validated against the small VM before the complete stack is enabled.
+H8 is complete. The authoritative evidence is in
+[`docs/h8-observability-closeout.md`](docs/h8-observability-closeout.md).
+No additional backend is an H8 acceptance requirement.
 
 ### SmartEnergy
 
@@ -239,6 +251,9 @@ Directories for components that have not yet been implemented may be introduced 
 | [`docs/operator-guide.md`](docs/operator-guide.md) | Daily SSH, tunnel, Kubernetes, and troubleshooting runbook |
 | [`docs/infrastructure-context.md`](docs/infrastructure-context.md) | Authoritative infrastructure requirements and phase model |
 | [`docs/h7-platform-deployment-closeout.md`](docs/h7-platform-deployment-closeout.md) | H7 implementation record, validation evidence, security boundary, and exit criteria |
+| [`docs/h8-collector-deployment-closeout.md`](docs/h8-collector-deployment-closeout.md) | H8.3D Collector deployment, health, NetworkPolicy, and Gate 3V-R evidence |
+| [`docs/h8-observability-closeout.md`](docs/h8-observability-closeout.md) | H8.4 live Prometheus, persistence, target-health, security, rollback, and completion evidence |
+| [`docs/h8-observability-design.md`](docs/h8-observability-design.md) | H8 architecture, resource budget, retention, security, and ordered implementation roadmap |
 | [`docs/argocd-sync-rollback-runbook.md`](docs/argocd-sync-rollback-runbook.md) | Manual Argo CD synchronization and rollback procedure |
 
 Planned documentation includes:
@@ -296,7 +311,7 @@ See [`docs/operator-guide.md`](docs/operator-guide.md) for the complete procedur
 | H5 — GHCR and CI access | Complete | Private package, immutable build identity, read-only pull Secret, digest-pinned deployment |
 | H6 — Argo CD bootstrap | Complete | Private Argo CD, restricted projects, manual synchronization, tested rollback |
 | H7 — Platform deployment | Complete | Operator, authenticated API, managed workload, immutable images, GitOps, TLS |
-| H8 — Observability deployment | Not started | Metrics, logs, traces, dashboards |
+| H8 — Observability deployment | Complete | Restricted Collector and bounded six-job Prometheus deployment validated |
 | H9 — SmartEnergy deployment | Not started | API, dashboard, PostgreSQL, and Redis |
 | H10 — Network probe | Not started | Synthetic connectivity and telemetry workload |
 | H11 — Backup and recovery | Not started | Tested backup and restoration procedures |

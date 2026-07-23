@@ -1,0 +1,26 @@
+# Local review fixture for the H8.4C scrape configuration foundation. The
+# production values.yaml keeps both dependencies disabled, and Argo CD does not
+# reference this file.
+opentelemetry-collector:
+  alternateConfig:
+    service:
+      telemetry:
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: ${env:MY_POD_IP}
+                    port: 8888
+  ports:
+    metrics:
+      enabled: true
+      containerPort: 8888
+      servicePort: 8888
+      protocol: TCP
+
+prometheus:
+  enabled: true
+
+kube-state-metrics:
+  enabled: true

@@ -2,9 +2,17 @@ apiVersion: v2
 name: cloud-native-service-control-plane-observability
 description: Resource-bounded observability components for the portfolio platform
 type: application
-version: 0.3.0
+version: 0.6.0
 appVersion: "0.1.0"
 dependencies:
   - name: opentelemetry-collector
     version: 0.165.0
     repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+  - name: prometheus
+    version: 29.18.0
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: prometheus.enabled
+  - name: kube-state-metrics
+    version: 7.8.1
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: kube-state-metrics.enabled

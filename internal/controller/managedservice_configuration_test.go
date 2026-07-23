@@ -29,9 +29,13 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -41,7 +45,7 @@ const (
 	approvedImagePullSecret    = "ghcr-pull"
 	approvedOperatorRepository = "ghcr.io/etclank/cloud-native-service-control-plane-operator"
 	approvedOperatorImage      = approvedOperatorRepository + "@sha256:" +
-		"8b537b3ab1780141b2554e495f7dd72ab36f7eb4d37c7ed396ebfa0d7cc88eb4"
+		"8f166fe9cdcbab093dee0bbef460e96dc1ec612973c48f9a07de35f16f4d0937"
 )
 
 func TestRenderedManagerConfiguration(t *testing.T) {
@@ -111,6 +115,34 @@ func TestRenderedManagerConfiguration(t *testing.T) {
 			"diagnostic labels %#v match operator metrics Service selector %#v",
 			operatorDiagnosticLabels,
 			metricsService.Spec.Selector,
+		)
+	}
+	metricsPolicy := findRenderedManagerMetricsPolicy(t, rendered)
+	wantMetricsPolicy := networkingv1.NetworkPolicySpec{
+		PodSelector: metav1.LabelSelector{MatchLabels: wantWorkloadSelector},
+		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+		Ingress: []networkingv1.NetworkPolicyIngressRule{{
+			From: []networkingv1.NetworkPolicyPeer{{
+				NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+					"kubernetes.io/metadata.name": "observability",
+				}},
+				PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+					applicationNameLabel:          "prometheus",
+					"app.kubernetes.io/instance":  "observability",
+					"app.kubernetes.io/component": "server",
+				}},
+			}},
+			Ports: []networkingv1.NetworkPolicyPort{{
+				Protocol: ptr.To(corev1.ProtocolTCP),
+				Port:     ptr.To(intstr.FromInt32(8443)),
+			}},
+		}},
+	}
+	if !reflect.DeepEqual(metricsPolicy.Spec, wantMetricsPolicy) {
+		t.Errorf(
+			"operator metrics NetworkPolicy = %#v, want %#v",
+			metricsPolicy.Spec,
+			wantMetricsPolicy,
 		)
 	}
 
@@ -352,6 +384,43 @@ func findRenderedManagerMetricsService(
 	}
 
 	t.Fatal("rendered configuration has no platform operator metrics Service")
+
+	return nil
+}
+
+func findRenderedManagerMetricsPolicy(
+	t *testing.T,
+	rendered []byte,
+) *networkingv1.NetworkPolicy {
+	t.Helper()
+
+	decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(rendered), 4096)
+	for {
+		object := &unstructured.Unstructured{}
+		err := decoder.Decode(object)
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("decode rendered configuration: %v", err)
+		}
+		if object.GetKind() != "NetworkPolicy" ||
+			object.GetName() != "platform-operator-prometheus-metrics-ingress" {
+			continue
+		}
+
+		policy := &networkingv1.NetworkPolicy{}
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(
+			object.Object,
+			policy,
+		); err != nil {
+			t.Fatalf("convert rendered manager metrics NetworkPolicy: %v", err)
+		}
+
+		return policy
+	}
+
+	t.Fatal("rendered configuration has no platform operator metrics NetworkPolicy")
 
 	return nil
 }

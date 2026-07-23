@@ -195,6 +195,7 @@ ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 HELM ?= $(LOCALBIN)/helm
 ARGOCD_HELM ?= $(LOCALBIN)/helm-argocd
+PROMTOOL ?= $(LOCALBIN)/promtool
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
@@ -219,16 +220,27 @@ ARGOCD_HELM_LINUX_AMD64_SHA256 ?= 759c656fbd9c11e6a47784ecbeac6ad1eb16a9e76d202e
 OTEL_COLLECTOR_CHART_SHA256 ?= b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5
 OTEL_COLLECTOR_CHART_ARCHIVE ?= deploy/observability/charts/opentelemetry-collector-0.165.0.tgz
 OTEL_COLLECTOR_CHART_REPOSITORY ?= https://open-telemetry.github.io/opentelemetry-helm-charts
+PROMETHEUS_CHART_SHA256 ?= 24f5f056dd5cb00e98ffb905c9c2779e810153f1b5a6306bf2cc2c5a4f02a0b9
+PROMETHEUS_CHART_ARCHIVE ?= deploy/observability/charts/prometheus-29.18.0.tgz
+KUBE_STATE_METRICS_CHART_SHA256 ?= b5a2436bd62226ff30a57b7237eaf2f99bac6be675484c4082bcd4312680de12
+KUBE_STATE_METRICS_CHART_ARCHIVE ?= deploy/observability/charts/kube-state-metrics-7.8.1.tgz
+PROMETHEUS_COMMUNITY_CHART_REPOSITORY ?= https://prometheus-community.github.io/helm-charts
+PROMTOOL_VERSION ?= v3.13.1
+PROMTOOL_LINUX_AMD64_SHA256 ?= 962b812371aff838d152b6ff2d56fdb7a6396f5542f48ebf73421b9721f0d103
 
 .PHONY: observability-dependencies
-observability-dependencies: helm ## Download and verify the locked observability chart dependency.
+observability-dependencies: helm ## Download and verify the locked observability chart dependencies.
 	@repository_config="$$(mktemp)"; repository_cache="$$(mktemp -d)"; \
 	trap 'rm -f "$$repository_config"; rm -r -- "$$repository_cache"' EXIT; \
 	"$(HELM)" repo add opentelemetry "$(OTEL_COLLECTOR_CHART_REPOSITORY)" \
 		--repository-config "$$repository_config" --repository-cache "$$repository_cache"; \
+	"$(HELM)" repo add prometheus-community "$(PROMETHEUS_COMMUNITY_CHART_REPOSITORY)" \
+		--repository-config "$$repository_config" --repository-cache "$$repository_cache"; \
 	"$(HELM)" dependency build deploy/observability \
 		--repository-config "$$repository_config" --repository-cache "$$repository_cache"
 	printf '%s  %s\n' "$(OTEL_COLLECTOR_CHART_SHA256)" "$(OTEL_COLLECTOR_CHART_ARCHIVE)" | sha256sum --check
+	printf '%s  %s\n' "$(PROMETHEUS_CHART_SHA256)" "$(PROMETHEUS_CHART_ARCHIVE)" | sha256sum --check
+	printf '%s  %s\n' "$(KUBE_STATE_METRICS_CHART_SHA256)" "$(KUBE_STATE_METRICS_CHART_ARCHIVE)" | sha256sum --check
 
 .PHONY: observability-render
 observability-render: observability-dependencies ## Render observability resources without Kubernetes API discovery.
@@ -256,6 +268,13 @@ $(HELM): $(LOCALBIN)
 .PHONY: argocd-helm
 argocd-helm: $(ARGOCD_HELM) ## Download the Helm version bundled with Argo CD v3.4.5.
 	@test "$$($(ARGOCD_HELM) version --template '{{.Version}}')" = "$(ARGOCD_HELM_VERSION)"
+
+.PHONY: promtool
+promtool: $(PROMTOOL) ## Download the pinned Promtool reserved for H8.4C configuration validation.
+	@test "$$($(PROMTOOL) --version | sed -n '1s/^promtool, version \([^ ]*\).*/\1/p')" = "$(patsubst v%,%,$(PROMTOOL_VERSION))"
+
+$(PROMTOOL): $(LOCALBIN)
+	$(call install-promtool,$(PROMTOOL),$(PROMTOOL_VERSION),$(PROMTOOL_LINUX_AMD64_SHA256))
 
 $(ARGOCD_HELM): $(LOCALBIN)
 	$(call install-helm,$(ARGOCD_HELM),$(ARGOCD_HELM_VERSION),$(ARGOCD_HELM_LINUX_AMD64_SHA256))
@@ -324,6 +343,28 @@ if [ ! -x "$$versioned_binary" ] || [ "$$($$versioned_binary version --template 
 	printf '%s  %s\n' "$(3)" "$$tmp_dir/$${archive}" | sha256sum --check; \
 	tar -xzf "$$tmp_dir/$${archive}" -C "$$tmp_dir"; \
 	mv "$$tmp_dir/linux-amd64/helm" "$$versioned_binary"; \
+fi; \
+ln -sfn "$$(realpath "$$versioned_binary")" "$(1)"
+endef
+
+# install-promtool downloads the official Prometheus release and verifies it before use.
+# $1 is the output binary, $2 is the v-prefixed version, and $3 is the archive SHA-256.
+define install-promtool
+@set -e; \
+version="$(2)"; \
+release_version="$${version#v}"; \
+versioned_binary="$(1)-$${version}"; \
+if [ ! -x "$$versioned_binary" ] || [ "$$($$versioned_binary --version 2>&1 | sed -n '1s/^promtool, version \([^ ]*\).*/\1/p')" != "$$release_version" ]; then \
+	tmp_dir="$$(mktemp -d)"; \
+	trap 'rm -r -- "$$tmp_dir"' EXIT; \
+	archive="prometheus-$${release_version}.linux-amd64.tar.gz"; \
+	directory="prometheus-$${release_version}.linux-amd64"; \
+	curl --fail --silent --show-error --location \
+		"https://github.com/prometheus/prometheus/releases/download/$${version}/$${archive}" \
+		--output "$$tmp_dir/$${archive}"; \
+	printf '%s  %s\n' "$(3)" "$$tmp_dir/$${archive}" | sha256sum --check; \
+	tar -xzf "$$tmp_dir/$${archive}" -C "$$tmp_dir" "$${directory}/promtool"; \
+	mv "$$tmp_dir/$${directory}/promtool" "$$versioned_binary"; \
 fi; \
 ln -sfn "$$(realpath "$$versioned_binary")" "$(1)"
 endef

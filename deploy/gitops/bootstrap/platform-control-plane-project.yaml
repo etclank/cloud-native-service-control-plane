@@ -40,6 +40,8 @@ spec:
       kind: RoleBinding
     - group: networking.k8s.io
       kind: Ingress
+    - group: networking.k8s.io
+      kind: NetworkPolicy
     - group: cert-manager.io
       kind: Certificate
     - group: traefik.io

@@ -1,7 +1,7 @@
 # Cloud-Native Service Control Plane — Build and Learning Guide
 
-> Status: Complete through Phase H7
-> Last updated: 20 July 2026
+> Status: Complete through H8
+> Last updated: 23 July 2026
 > Target: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s
 > Purpose: Explain the build, preserve the commands, and provide a reproducible reconstruction path.
 
@@ -21,9 +21,11 @@ The guide currently covers:
 - H4 — DNS and TLS foundation;
 - H5 — private GHCR and immutable delivery;
 - H6 — private Argo CD and tested rollback;
-- H7 — operator, control-plane API, managed workload, GitOps, and production TLS.
+- H7 — operator, control-plane API, managed workload, GitOps, and production TLS;
+- H8.1–H8.4 — observability design, telemetry foundations, the validated
+  OpenTelemetry Collector boundary, and bounded Prometheus.
 
-H8 and later phases should be appended only after implementation and validation. Commands are grouped by where they run.
+Later phases should be appended only after implementation and validation. Commands are grouped by where they run.
 
 | Marker | Run the command in |
 | --- | --- |
@@ -2314,11 +2316,51 @@ The memory observation is important for H8. A 4 GB single node has limited headr
 - [x] Status, internal endpoint, owner references, drift correction, and deletion verified.
 - [x] No Secret values committed or included in documentation.
 
-H7 is complete. The next phase is H8 observability deployment.
+H7 is complete. At its closeout, the next phase was H8 observability deployment.
 
 ---
 
-# Operational Concepts Learned Through H1–H7
+# H8.1–H8.3 — Observability Foundation and Collector
+
+## H8.1–H8.2 Design and Instrumentation
+
+H8 began with a resource and retention design for the constrained single-node
+environment, followed by shared Go telemetry foundations for the operator,
+control-plane API, and demo service. Runtime image pins were advanced through
+the reviewed immutable publication process. Workload OTLP endpoints remained
+unset, so instrumentation did not imply live export.
+
+## H8.3 Collector Delivery and Network Boundary
+
+The OpenTelemetry Collector is packaged through a locked Helm dependency and
+delivered by a restricted, manually synchronized Argo CD Application. It runs
+in `observability` with bounded resources, private ClusterIP receivers, and
+NetworkPolicies that admit only reviewed client Pod identities from
+`platform-system` and `applications` on TCP 4317 and 4318.
+
+Gate 3V-R proved both authorized OTLP/HTTP paths returned HTTP 200. The
+unlabelled identity in each client namespace was rejected, and an authorized
+identity was rejected on the excluded TCP 13133 health port. On the pinned K3s
+kube-router dataplane, denied traffic produces an explicit refusal and curl
+exit 7; the paired successful controls distinguish policy enforcement from an
+unhealthy target. The Collector remained Ready with zero restarts, cleanup was
+complete, and production workload inventories were unchanged.
+
+The canonical sanitized evidence, including immutable revisions, hashes,
+resource identities, procedural history, and exact case timestamps, is in
+[`h8-collector-deployment-closeout.md`](h8-collector-deployment-closeout.md).
+The original Gate 3V remains procedurally failed; Gate 3V-D diagnosed the
+dataplane behavior, and Gate 3V-R is the authoritative passing execution.
+
+H8.3 and H8.4 are complete. The restricted Collector and bounded Prometheus
+stack are live through manual-sync GitOps; all six accepted scrape jobs are
+healthy, PVC-backed recovery passed, and rollback was dry-run without deleting
+data. Only the `nop` Collector exporter is live, and no production workload
+exports OTLP. Kubelet, cAdvisor, Loki, Tempo, Grafana, and other additional
+backends are optional post-H8 enhancements. See
+[`h8-observability-closeout.md`](h8-observability-closeout.md).
+
+# Operational Concepts Learned Through H1–H8
 
 ## Desired State and Reconciliation
 
@@ -2428,7 +2470,7 @@ kubectl get events -n NAMESPACE --sort-by='.lastTimestamp'
 | H5 | Complete | Private GHCR publication, read-only cluster authentication, immutable digest deployment |
 | H6 | Complete | Private Argo CD bootstrap, restricted GitOps, and tested rollback |
 | H7 | Complete | Operator, authenticated API, managed workload, immutable images, TLS, and lifecycle validation |
-| H8 | Not started | Observability deployment |
+| H8 | Complete | Restricted Collector and bounded six-job Prometheus deployment validated |
 | H9 | Not started | SmartEnergy deployment |
 | H10 | Not started | Network probe deployment |
 | H11 | Not started | Backup and recovery validation |

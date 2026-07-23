@@ -1,9 +1,9 @@
 # Cloud-Native Service Control Plane — Operator Guide
 
-> Status: H7 operating guide, version 1.0
-> Last updated: 20 July 2026
+> Status: H8 operating guide, version 1.1
+> Last updated: 23 July 2026
 > Environment: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s
-> H7 is complete; observability, SmartEnergy, backup, and later roadmap phases remain future work.
+> H8 is complete; SmartEnergy, backup, and later roadmap phases remain future work.
 
 ## 1. Purpose
 
@@ -935,9 +935,27 @@ Completed:
 - authenticated lifecycle API at `https://api.platform.eoghanclancy.eu`;
 - production certificate, permanent HTTPS redirect, and Traefik rate limit;
 - live `portfolio-demo` with available status and tested drift correction;
-- tested API creation and deletion with owner-driven garbage collection.
+- tested API creation and deletion with owner-driven garbage collection;
+- restricted, manual-sync OpenTelemetry Collector deployment in
+  `observability`;
+- validated OTLP/HTTP access from both authorized workload identities and
+  isolation of unauthorized identities and TCP 13133;
+- Collector configured with only the `nop` exporter and no production workload
+  OTLP export;
+- private, bounded Prometheus and reduced kube-state-metrics;
+- exactly six healthy scrape jobs, bounded 72h/2GB retention, and a Bound 3Gi
+  PVC;
+- tested Prometheus Pod recreation, retained TSDB history, and stable target
+  rediscovery.
 
-H7 platform deployment is complete. Later work will add observability, persistent data services, backup procedures, and the remaining roadmap workloads.
+H7 and H8 are complete. Workload OTLP enablement and additional observability
+backends remain separately reviewed later work. The authoritative Collector
+validation record is
+[`h8-collector-deployment-closeout.md`](h8-collector-deployment-closeout.md).
+The Prometheus and H8 closeout record is
+[`h8-observability-closeout.md`](h8-observability-closeout.md).
+Optional post-H8 work may add further observability backends, persistent data
+services, backup procedures, and roadmap workloads.
 
 ## 14. Planned Final Documentation
 

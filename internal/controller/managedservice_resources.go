@@ -39,6 +39,7 @@ const (
 	managedServiceContainerPort        = int32(8080)
 	managedServiceHTTPPortName         = "http"
 	managedServiceMetricsContainerPort = int32(9090)
+	managedServiceMetricsPortName      = "metrics"
 	managedServiceServicePort          = int32(80)
 	applicationNameLabel               = "app.kubernetes.io/name"
 	applicationInstanceLabel           = "app.kubernetes.io/instance"
@@ -180,7 +181,7 @@ func (r *ManagedServiceReconciler) reconcileDeployment(
 								Protocol:      corev1.ProtocolTCP,
 							},
 							{
-								Name:          "metrics",
+								Name:          managedServiceMetricsPortName,
 								ContainerPort: managedServiceMetricsContainerPort,
 								Protocol:      corev1.ProtocolTCP,
 							},
@@ -307,6 +308,12 @@ func (r *ManagedServiceReconciler) reconcileService(
 					Port:       managedServiceServicePort,
 					Protocol:   corev1.ProtocolTCP,
 					TargetPort: intstr.FromString(managedServiceHTTPPortName),
+				},
+				{
+					Name:       managedServiceMetricsPortName,
+					Port:       managedServiceMetricsContainerPort,
+					Protocol:   corev1.ProtocolTCP,
+					TargetPort: intstr.FromString(managedServiceMetricsPortName),
 				},
 			}
 

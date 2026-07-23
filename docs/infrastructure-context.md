@@ -100,7 +100,7 @@ It must not be described as a highly available production platform unless the ar
 
 **Current VM status:** `portfolio-k3s-01`, CX23, 2 vCPU, 4 GB RAM, 40 GB SSD
 
-**Current deployment status:** Complete through H7 platform deployment
+**Current deployment status:** H7 complete; H8.3 Collector foundation complete
 
 **Current Kubernetes status:** Single-node K3s `v1.36.2+k3s1`, healthy
 
@@ -110,9 +110,15 @@ It must not be described as a highly available production platform unless the ar
 
 **Public Kubernetes target:** Single-node K3s
 
-**Current phase:** H7 complete; H8 observability deployment is next
+**Current phase:** H8 complete; restricted Collector and bounded Prometheus validation passed
 
-The live environment includes private Argo CD administration, the `ManagedService` CRD and operator, the authenticated control-plane API, and the managed `portfolio-demo` workload. Operational work must still inspect current state before changing it; this record is evidence from the H7 closeout, not permission to assume that live state can never drift.
+The live environment includes private Argo CD administration, the
+`ManagedService` CRD and operator, the authenticated control-plane API, the
+managed `portfolio-demo` workload, and a private, NetworkPolicy-restricted
+OpenTelemetry Collector. The Collector currently uses only a `nop` exporter;
+no production workload exports telemetry. Operational work must still inspect
+current state before changing it; closeout records are evidence, not permission
+to assume that live state can never drift.
 
 ---
 
@@ -887,7 +893,16 @@ Logs and traces must be reviewed for sensitive-data leakage before Grafana is ma
 
 ## 25. Observability Deployment
 
-The first observability deployment may use a simplified stack.
+The first observability component is deployed. The OpenTelemetry Collector is
+managed by a restricted, manually synchronized Argo CD Application in the
+`observability` namespace. Its authorized OTLP/HTTP paths from
+`platform-system` and `applications` have been validated; unauthorized
+identities and policy-excluded TCP 13133 are blocked. It has no durable backend
+and uses only the `nop` exporter. See
+[`h8-collector-deployment-closeout.md`](h8-collector-deployment-closeout.md)
+for the authoritative H8.3D evidence.
+
+The remaining observability deployment uses a simplified stack.
 
 Expected components:
 
@@ -1392,6 +1407,17 @@ Exit criteria:
 * application requests can be investigated
 * disk growth is bounded
 * access is protected
+
+Current status:
+
+```text
+COMPLETE — restricted Collector and bounded six-job Prometheus validated 2026-07-23
+```
+
+The accepted H8 scope is complete. Loki, Tempo, Grafana, workload OTLP export,
+kubelet, cAdvisor, dashboards, and additional alerting are optional post-H8
+enhancements. The live evidence is recorded in
+[`h8-observability-closeout.md`](h8-observability-closeout.md).
 
 ---
 
@@ -2139,14 +2165,12 @@ The following decisions are currently authoritative:
 
 ## 48. Current Open Decisions
 
-The following decisions remain open after H7:
+The following decisions remain open for later phases:
 
-* exact persistent-volume sizes
 * backup destination
 * longer-term Secret-management mechanism beyond manually managed Kubernetes Secrets
-* Prometheus versus Mimir for the first public deployment
 * Grafana public-access mechanism
-* observability retention periods
+* retention periods for optional future backends
 * K3s upgrade strategy
 * VM snapshot policy
 * whether additional Hetzner volumes are required
@@ -2162,16 +2186,12 @@ The simplest safe and reversible option should be preferred.
 The next infrastructure phase is:
 
 ```text
-Phase H8 — Deploy a resource-bounded observability stack.
+Phase H9 — Deploy SmartEnergy through the validated platform.
 ```
 
-Before enabling H8 components:
-
-* capture a fresh node and pod resource baseline;
-* account for the current approximately 66% memory use on the 4 GB node;
-* choose bounded retention and conservative requests/limits;
-* deploy one observability layer at a time;
-* keep telemetry receivers and dashboards private unless a separately reviewed access design is implemented.
+Before enabling H9, capture a fresh resource baseline, define the data
+persistence and backup boundary, and preserve the established immutable-image,
+restricted GitOps, and namespace-isolation controls.
 
 ---
 
