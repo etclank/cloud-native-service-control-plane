@@ -45,7 +45,7 @@ const (
 	approvedImagePullSecret    = "ghcr-pull"
 	approvedOperatorRepository = "ghcr.io/etclank/cloud-native-service-control-plane-operator"
 	approvedOperatorImage      = approvedOperatorRepository + "@sha256:" +
-		"8b537b3ab1780141b2554e495f7dd72ab36f7eb4d37c7ed396ebfa0d7cc88eb4"
+		"8f166fe9cdcbab093dee0bbef460e96dc1ec612973c48f9a07de35f16f4d0937"
 )
 
 func TestRenderedManagerConfiguration(t *testing.T) {
