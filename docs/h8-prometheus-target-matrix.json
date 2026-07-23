@@ -1,6 +1,6 @@
 {
-  "version": "h8.4c-kr-proof",
-  "h84CKRDecision": {
+  "version": "h8.4c-kr2-proof",
+  "h84CKR2Decision": {
     "authenticationAuthorization": "proven and accepted as a future design input",
     "metricAllowlists": "proven and accepted as bounded future design inputs",
     "kubeletServingCertificate": "still unproven",
@@ -10,7 +10,7 @@
     "implementationStatus": "not implemented",
     "h84DStatus": "blocked",
     "evidenceReference": "docs/h8-kubelet-cadvisor-certificate-networkpolicy-proof.md",
-    "nextOwner": "H8.4C-KR2 SSH-authenticated certificate and policy inspection follow-up after the user restores the matching configured key in the SSH agent"
+    "nextOwner": "H8.4C-KR3 non-interactive read-only host evidence follow-up after the user establishes narrowly scoped passwordless sudo or supplies equivalent directly observed public metadata"
   },
   "global": {
     "scrapeInterval": "30s",
@@ -426,8 +426,8 @@
       "id": "kubelet",
       "status": "deferred",
       "purpose": "Provide node and kubelet process metrics after authentication, policy routing, and cardinality are proven.",
-      "ownerBatch": "H8.4C-KR2 SSH-authenticated certificate and policy inspection follow-up",
-      "deferredReason": "H8.4C-KR found the intended SSH alias and configured key unambiguously, but the agent contained only a different public-key fingerprint. The controlled retry was therefore prohibited. Exact kubelet serving-certificate metadata and kube-router's Pod-to-local-node TCP 10250 enforcement remain unproven, so implementation remains forbidden.",
+      "ownerBatch": "H8.4C-KR3 non-interactive read-only host evidence follow-up",
+      "deferredReason": "H8.4C-KR2 proved that the configured key was loaded and the single controlled SSH authentication succeeded as eoghan on portfolio-k3s-01. The session stopped before host inspection because sudo -n required a password. Exact kubelet serving-certificate metadata and kube-router's Pod-to-local-node TCP 10250 enforcement remain unproven, so implementation remains forbidden.",
       "namespace": "cluster node portfolio-k3s-01",
       "ownerObject": "Node/portfolio-k3s-01",
       "service": "none",
@@ -470,14 +470,14 @@
       "proofEvidence": {
         "authentication": "The live K3s metrics-server is Ready, authenticates to kubelets with its ServiceAccount identity, and successfully publishes fresh node CPU and memory through metrics.k8s.io.",
         "authorization": "Kubernetes v1.36 maps GET /metrics and GET /metrics/* to core nodes/metrics get. nodes/proxy is both unnecessary and unsafe. The future Prometheus identity currently has none of the deferred node permissions.",
-        "tls": "The live metrics-server selects InternalIP and has no kubelet-insecure-tls flag, proving strict TLS works for its path. H8.4C-KR could not inspect the selected certificate because the configured key fingerprint SHA256:UZH/Hevwku3TViA+ZhZWLa4MmOvactH0maZ+iTd5n9w was not present in the agent; only SHA256:r2aP6c1jw5kcvOaJQPikUNb2VDzzIjywLQpICflPCPw was loaded, so no SSH retry was made.",
-        "networkPolicy": "H8.4B0 proves 142.132.178.45/32 as the post-DNAT node destination for API TCP 6443, but no deployment-specific rule inspection establishes Pod-to-local-node TCP 10250 enforcement. SSH host inspection did not run because the matching key was absent from the agent.",
+        "tls": "The live metrics-server selects InternalIP and has no kubelet-insecure-tls flag, proving strict TLS works for its path. H8.4C-KR2 verified the configured public-key fingerprint, authenticated successfully to portfolio-k3s-01 over SSH, and then stopped when sudo -n required a password. The real TCP 10250 listener and certificate were not inspected.",
+        "networkPolicy": "H8.4B0 proves 142.132.178.45/32 as the post-DNAT node destination for API TCP 6443, but no deployment-specific rule inspection establishes Pod-to-local-node TCP 10250 enforcement. H8.4C-KR2 ran no privileged route or netfilter inspection because sudo -n required a password.",
         "schemaInspection": "One API-proxied /metrics request retained only selected family names and label-key names; no values, timestamps or raw payload were retained.",
         "unresolved": [
           "exact kubelet serving-certificate subject, issuer, validity and SAN",
           "strict verification and optional server_name configuration for Prometheus itself",
           "effective kube-router enforcement of exact 142.132.178.45/32 TCP 10250 from the Prometheus Pod identity",
-          "user-restored SSH agent identity matching the configured public-key fingerprint before one controlled host inspection"
+          "narrowly scoped non-interactive read-only host privilege, or equivalent directly observed public evidence, for the certificate and enforcement inspection"
         ]
       },
       "metricAllowlist": [
@@ -550,8 +550,8 @@
       "id": "cadvisor",
       "status": "deferred",
       "purpose": "Provide bounded container resource metrics after the shared kubelet boundary and a cAdvisor-specific metric allowlist are proven.",
-      "ownerBatch": "H8.4C-KR2 SSH-authenticated certificate and policy inspection follow-up",
-      "deferredReason": "H8.4C-KR could not perform the single controlled SSH retry because the configured key fingerprint was absent from the agent. Exact serving-certificate and kube-router TCP 10250 proof remain unavailable, and the network interface dimension is not yet safe enough to accept network families. Implementation remains forbidden.",
+      "ownerBatch": "H8.4C-KR3 non-interactive read-only host evidence follow-up",
+      "deferredReason": "H8.4C-KR2 authenticated successfully with the exact configured key, but sudo -n required a password and the authorized session stopped before certificate, route, or netfilter inspection. Exact serving-certificate and kube-router TCP 10250 proof remain unavailable, and the network interface dimension is not yet safe enough to accept network families. Implementation remains forbidden.",
       "namespace": "cluster node portfolio-k3s-01",
       "ownerObject": "Node/portfolio-k3s-01 kubelet",
       "service": "none",
@@ -594,8 +594,8 @@
       "proofEvidence": {
         "authentication": "The shared kubelet TokenReview authentication evidence is identical to the kubelet job.",
         "authorization": "Kubernetes v1.36 maps GET /metrics/cadvisor under /metrics/* to core nodes/metrics get; nodes/proxy is unnecessary and unsafe.",
-        "tls": "The shared direct kubelet certificate proof remains incomplete because the matching configured SSH key was absent from the agent and no SSH retry was permitted.",
-        "networkPolicy": "The shared Pod-to-node TCP 10250 enforcement proof remains incomplete because host rule inspection did not run and no test traffic was authorized.",
+        "tls": "The shared direct kubelet certificate proof remains incomplete. H8.4C-KR2 authenticated over SSH with the exact configured key, but the session stopped when sudo -n required a password, before the TCP 10250 listener or certificate was inspected.",
+        "networkPolicy": "The shared Pod-to-node TCP 10250 enforcement proof remains incomplete because sudo -n prevented host rule inspection and no test traffic was authorized.",
         "schemaInspection": "One API-proxied /metrics/cadvisor request retained only selected family names and label-key names; no values, timestamps or raw payload were retained.",
         "unresolved": [
           "all shared kubelet certificate and NetworkPolicy questions",

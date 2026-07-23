@@ -157,14 +157,17 @@ is unresolved:
 
 H8.4C-KR subsequently confirmed that the intended alias and configured key
 were unambiguous, but the SSH agent held only a different public-key
-fingerprint. Its controlled retry was therefore prohibited. The exact result
-and remaining boundary are recorded in
+fingerprint. H8.4C-KR2 then verified the exact configured fingerprint and
+authenticated successfully to `portfolio-k3s-01` as `eoghan`. Its single
+session stopped before host inspection because `sudo -n` required a password.
+The exact result and remaining boundary are recorded in
 [`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).
-The explicit future owner is **H8.4C-KR2 SSH-authenticated certificate and
-policy inspection follow-up**, after the user restores the matching configured
-key in the agent outside an agent-run batch. H8.4D remains blocked until that
-follow-up either accepts both jobs or the authoritative roadmap explicitly
-removes them from the mandatory H8.4 inventory.
+The explicit future owner is **H8.4C-KR3 non-interactive read-only host
+evidence follow-up**, after the user establishes narrowly scoped passwordless
+sudo for the reviewed public-metadata commands or supplies equivalent directly
+observed evidence through a separately reviewed method. H8.4D remains blocked
+until that follow-up either accepts both jobs or the authoritative roadmap
+explicitly changes the mandatory H8.4 inventory.
 
 The observability default render remains seven objects with SHA-256
 `cb441f08f11f45e914bad39271fa7198e85a21382a598ea37ad4d1e5eebf2900`.

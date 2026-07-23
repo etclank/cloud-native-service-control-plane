@@ -1,21 +1,25 @@
-# H8.4C-KR Kubelet Certificate and NetworkPolicy Proof
+# H8.4C-KR2 Kubelet Certificate and NetworkPolicy Proof
 
-H8.4C-KR attempted to close the two shared proof properties that still block
-the `kubelet` and `cadvisor` Prometheus jobs:
+H8.4C-KR2 retried the two shared proof properties that block the `kubelet`
+and `cadvisor` Prometheus jobs:
 
 1. exact kubelet serving-certificate identity and trust;
 2. kube-router enforcement for ordinary Pod-to-local-node TCP 10250 traffic.
 
-Both properties remain **still unproven**. The batch changed no scrape
-configuration, RBAC, NetworkPolicy, Helm value, application code, dependency,
-Argo CD object, or live resource.
+The exact configured SSH identity authenticated successfully. The session then
+stopped at the required privilege boundary because `sudo -n` required a
+password. Both properties remain **still unproven**. This batch changed no
+scrape configuration, RBAC, NetworkPolicy, Helm value, application code,
+dependency, Argo CD object, or live resource.
 
 ## Baseline
 
 The repository started at
-`0a409518a337bb1a5f1456d52149afaa2b21d3d6` on
-`h8-observability-foundation`. The default observability render remained seven
-objects with SHA-256
+`a70292d4d19015f60fc3c53531d71ae6a8539758` on
+`h8-observability-foundation`, with parent
+`0a409518a337bb1a5f1456d52149afaa2b21d3d6` and `origin/main` at
+`3469f6a0809f508fc81b21abe4fe33b9e565d7ce`. The default observability
+render remained seven objects with SHA-256
 `cb441f08f11f45e914bad39271fa7198e85a21382a598ea37ad4d1e5eebf2900`.
 The disabled candidate remained 31 objects with SHA-256
 `307f390cedb0f147fdf88c45ae83a184055c4d0d0269e3257591903ea486f0d5`
@@ -30,18 +34,17 @@ Read-only Kubernetes preflight reconfirmed:
 - IPv4 InternalIP `142.132.178.45`;
 - advertised kubelet TCP 10250;
 - Argo CD Synced/Healthy at Collector Commit A with no active operation;
-- Collector 1/1 Ready with zero restarts;
+- all seven observability resource UIDs unchanged;
+- Collector Pod UID `f7263e53-8ddc-408e-8516-0ee9532a6c08`, Ready with
+  zero restarts;
 - no live Prometheus, kube-state-metrics, Prometheus PVC, node-scrape RBAC, or
   TCP 10250 policy.
 
-No metrics endpoint was queried in H8.4C-KR.
+No metrics endpoint was queried in H8.4C-KR2.
 
-## SSH recovery gate
+## SSH authentication result
 
-Only the permitted local metadata was inspected. No key content or broad SSH
-configuration was displayed.
-
-The effective alias was unambiguous:
+The effective alias remained exact:
 
 | Field | Value |
 | --- | --- |
@@ -52,52 +55,69 @@ The effective alias was unambiguous:
 | IdentitiesOnly | `yes` |
 | Configured key | `~/.ssh/hetzner_portfolio_ed25519` |
 
-The configured private-key file existed with mode 600, and its public-key file
-existed with mode 644. Only public-key fingerprints were inspected:
+The configured public key and the loaded agent identity both reported the
+expected ED25519 fingerprint
+`SHA256:UZH/Hevwku3TViA+ZhZWLa4MmOvactH0maZ+iTd5n9w`. No private-key content
+was read or displayed.
 
-| Identity | ED25519 SHA-256 fingerprint |
-| --- | --- |
-| Configured `hetzner-portfolio` public key | `SHA256:UZH/Hevwku3TViA+ZhZWLa4MmOvactH0maZ+iTd5n9w` |
-| Only identity reported by the SSH agent | `SHA256:r2aP6c1jw5kcvOaJQPikUNb2VDzzIjywLQpICflPCPw` |
+Exactly one SSH process was started:
 
-The fingerprints did not match. The authorization allowed one controlled SSH
-retry only if the agent reported the matching configured key. Therefore no SSH
-authentication retry was made, no host session opened, and no host command ran.
-The agent, key files, SSH configuration, and server `authorized_keys` were not
-changed.
+```text
+ssh -o BatchMode=yes -o PasswordAuthentication=no \
+  -o KbdInteractiveAuthentication=no -o ConnectTimeout=10 \
+  portfolio-k3s '<bounded read-only inspection script>'
+```
+
+Authentication succeeded. The only remote commands that completed were:
+
+```text
+hostname
+id -un
+sudo -n true
+```
+
+They reported host `portfolio-k3s-01`, user `eoghan`, and
+`sudo: a password is required`. The script exited with status 90 at that
+explicit guard. None of its certificate, listener, process, route, interface,
+iptables, nftables, or kube-router inspection commands ran. A password was not
+requested or entered, and no second SSH attempt was made.
 
 ## Certificate decision
 
 Status: **still unproven**.
 
-Because the controlled SSH gate did not open, H8.4C-KR did not inspect the
-actual TCP 10250 listener or serving certificate. The following remain unknown:
+The authenticated session establishes the host and user boundary but provides
+no certificate evidence. Because the non-interactive sudo guard failed before
+inspection, H8.4C-KR2 did not inspect the actual TCP 10250 listener or perform
+the permitted node-local TLS handshake. The following remain unknown:
 
-- subject, issuer, serial and fingerprint;
+- certificate subject, issuer, serial and SHA-256 fingerprint;
 - not-before and not-after dates;
 - key usage and extended key usage;
 - DNS and IP SANs;
-- whether `142.132.178.45` and `portfolio-k3s-01` are SANs;
-- the exact trust anchor available to Prometheus;
-- whether `server_name` is required;
-- whether certificate rotation preserves the identity and issuer contract.
+- whether `142.132.178.45` and `portfolio-k3s-01` are stable SANs;
+- serving-certificate source and rotation contract;
+- the exact trust anchor available through the standard projected
+  ServiceAccount CA bundle;
+- whether Prometheus requires `server_name`.
 
-The earlier metrics-server evidence still shows that strict InternalIP TLS
-works for that component. It cannot substitute for the required certificate
-metadata or establish the exact Prometheus trust configuration.
+The earlier healthy metrics-server evidence continues to show that strict
+InternalIP TLS works for that component. It cannot substitute for direct
+listener metadata or prove Prometheus's exact trust configuration.
 `insecure_skip_verify` remains unapproved.
 
 ## NetworkPolicy decision
 
 Status: **still unproven**.
 
-No host rule, route, interface, iptables, nftables, or kube-router inspection
-ran. Therefore H8.4C-KR cannot establish:
+The session ended before host route and netfilter inspection. The previously
+recorded K3s `v1.36.2+k3s1` and embedded kube-router `v2.6.3-k3s1` facts were
+not re-observed over SSH. H8.4C-KR2 therefore cannot establish:
 
-- kube-router's effective backend and relevant chains;
-- whether ordinary Pod-to-local-node traffic is policy evaluated;
-- the policy-visible destination for TCP 10250;
-- whether local host delivery bypasses the intended boundary;
+- the effective iptables or nftables backend and relevant live chains;
+- how ordinary Pod egress enters kube-router policy evaluation;
+- whether direct local-node delivery traverses or bypasses those chains;
+- the policy-visible TCP 10250 destination;
 - whether exact `142.132.178.45/32` TCP 10250 is meaningful and enforceable.
 
 No traffic was sent. The earlier TCP 6443 API proof is not reused as proof for
@@ -109,18 +129,22 @@ the kubelet host process. No TCP 10250 policy is accepted or implemented.
 | --- | --- |
 | ServiceAccount authentication and `nodes/metrics get` authorization | proven and accepted as a future design input |
 | Bounded kubelet and cAdvisor metric-family candidates | proven and accepted as future design inputs |
+| SSH alias, exact key identity, and host authentication | proven |
 | Exact kubelet serving certificate and Prometheus trust | still unproven |
 | kube-router Pod-to-local-node TCP 10250 enforcement | still unproven |
 | `kubelet` job | deferred, not implemented |
 | `cadvisor` job | deferred, not implemented |
 | H8.4D GitOps registration | blocked |
 
-The concrete recovery path is for the user to restore the configured
-`hetzner-portfolio` key fingerprint in the SSH agent outside this batch. The
-next dependency-ordered batch is **H8.4C-KR2 SSH-authenticated certificate and
-policy inspection follow-up**. It may make one controlled SSH attempt after
-reconfirming the matching fingerprint and then run only the previously
-reviewed read-only certificate and network-rule commands.
+The next concrete proof owner is **H8.4C-KR3 non-interactive read-only host
+evidence follow-up**. Before that batch, the user must either establish
+narrowly scoped passwordless sudo for the already reviewed public
+certificate, listener, route, and netfilter inspection commands, or provide
+equivalent directly observed public metadata through a separately reviewed
+method. The agent must not request a sudo password or broaden host privilege.
+If neither method is acceptable, the roadmap needs an explicit decision gate
+between authorizing a narrowly scoped deployment-specific validation and
+changing the mandatory H8.4 target scope.
 
 H8.4C-KI is not executable. H8.4D remains blocked while either mandatory node
 job is deferred. Prometheus remains disabled, undeployed, and incomplete.

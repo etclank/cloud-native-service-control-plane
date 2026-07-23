@@ -51,8 +51,8 @@ const (
 )
 
 type prometheusTargetMatrix struct {
-	Version        string `json:"version"`
-	H84CKRDecision struct {
+	Version         string `json:"version"`
+	H84CKR2Decision struct {
 		AuthenticationAuthorization string `json:"authenticationAuthorization"`
 		MetricAllowlists            string `json:"metricAllowlists"`
 		KubeletServingCertificate   string `json:"kubeletServingCertificate"`
@@ -63,7 +63,7 @@ type prometheusTargetMatrix struct {
 		H84DStatus                  string `json:"h84DStatus"`
 		EvidenceReference           string `json:"evidenceReference"`
 		NextOwner                   string `json:"nextOwner"`
-	} `json:"h84CKRDecision"`
+	} `json:"h84CKR2Decision"`
 	Global struct {
 		ScrapeInterval          string            `json:"scrapeInterval"`
 		EvaluationInterval      string            `json:"evaluationInterval"`
@@ -145,7 +145,7 @@ type prometheusMetricAllowlist struct {
 func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 	matrix, _ := readPrometheusTargetMatrix(t)
 
-	if matrix.Version != "h8.4c-kr-proof" {
+	if matrix.Version != "h8.4c-kr2-proof" {
 		t.Errorf("target matrix version = %q", matrix.Version)
 	}
 	if matrix.Global.ScrapeInterval != defaultScrapeInterval ||
@@ -192,9 +192,9 @@ func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 	}
 }
 
-func TestH84CKRRecordsExactSSHBlockerWithoutAcceptingNodeJobs(t *testing.T) {
+func TestH84CKR2RecordsExactSudoBlockerWithoutAcceptingNodeJobs(t *testing.T) {
 	matrix, raw := readPrometheusTargetMatrix(t)
-	decision := matrix.H84CKRDecision
+	decision := matrix.H84CKR2Decision
 
 	if decision.AuthenticationAuthorization !=
 		"proven and accepted as a future design input" ||
@@ -206,35 +206,36 @@ func TestH84CKRRecordsExactSSHBlockerWithoutAcceptingNodeJobs(t *testing.T) {
 		decision.CadvisorStatus != deferredTargetStatus ||
 		decision.ImplementationStatus != "not implemented" ||
 		decision.H84DStatus != "blocked" {
-		t.Errorf("H8.4C-KR decision = %#v", decision)
+		t.Errorf("H8.4C-KR2 decision = %#v", decision)
 	}
-	if !strings.Contains(decision.NextOwner, "H8.4C-KR2") ||
-		!strings.Contains(decision.NextOwner, "matching configured key") {
-		t.Errorf("H8.4C-KR next owner = %q", decision.NextOwner)
+	if !strings.Contains(decision.NextOwner, "H8.4C-KR3") ||
+		!strings.Contains(decision.NextOwner, "non-interactive read-only") {
+		t.Errorf("H8.4C-KR2 next owner = %q", decision.NextOwner)
 	}
 	evidencePath := filepath.Join("..", "..", decision.EvidenceReference)
 	if _, err := os.Stat(evidencePath); err != nil {
-		t.Errorf("H8.4C-KR evidence reference %q: %v", evidencePath, err)
+		t.Errorf("H8.4C-KR2 evidence reference %q: %v", evidencePath, err)
 	}
 
 	for _, jobID := range []string{kubeletTarget, cadvisorTarget} {
 		job := findPrometheusTarget(t, matrix.Jobs, jobID)
 		if job.Status != deferredTargetStatus ||
-			!strings.Contains(job.OwnerBatch, "H8.4C-KR2") ||
+			!strings.Contains(job.OwnerBatch, "H8.4C-KR3") ||
 			!strings.Contains(
 				strings.ToLower(job.DeferredReason),
 				"implementation remains forbidden",
 			) {
-			t.Errorf("job %q H8.4C-KR decision = %#v", jobID, job)
+			t.Errorf("job %q H8.4C-KR2 decision = %#v", jobID, job)
 		}
 		if strings.Contains(job.TLSVerification, "accepted") ||
 			strings.Contains(job.TLSVerification, "insecure_skip_verify: true") {
 			t.Errorf("job %q prematurely accepts TLS: %q", jobID, job.TLSVerification)
 		}
 		if job.ProofEvidence == nil ||
-			!strings.Contains(job.ProofEvidence.TLS, "no SSH retry") ||
-			!strings.Contains(job.ProofEvidence.NetworkPolicy, "did not run") {
-			t.Errorf("job %q H8.4C-KR proof = %#v", jobID, job.ProofEvidence)
+			!strings.Contains(job.ProofEvidence.TLS, "authenticated") ||
+			!strings.Contains(job.ProofEvidence.TLS, "sudo -n") ||
+			!strings.Contains(job.ProofEvidence.NetworkPolicy, "sudo -n") {
+			t.Errorf("job %q H8.4C-KR2 proof = %#v", jobID, job.ProofEvidence)
 		}
 	}
 
