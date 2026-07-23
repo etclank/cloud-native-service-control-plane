@@ -382,7 +382,7 @@ func TestH84BCandidateNetworkPoliciesUseOnlyReviewedBoundaries(t *testing.T) {
 	_, resources := renderH84BCandidate(t)
 
 	prometheusSelector := metav1.LabelSelector{MatchLabels: map[string]string{
-		"app.kubernetes.io/name":      "prometheus",
+		"app.kubernetes.io/name":      prometheusChartName,
 		"app.kubernetes.io/instance":  "observability",
 		"app.kubernetes.io/component": serverValue,
 	}}

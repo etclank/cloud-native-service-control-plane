@@ -185,7 +185,7 @@ func TestH84CCandidateMetricsExposureAndTargetPolicies(t *testing.T) {
 		map[string]any{
 			"pull": map[string]any{
 				"exporter": map[string]any{
-					"prometheus": map[string]any{
+					prometheusChartName: map[string]any{
 						"host": "${env:MY_POD_IP}",
 						"port": float64(8888),
 					},

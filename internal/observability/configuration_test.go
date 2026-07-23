@@ -1050,7 +1050,7 @@ func assertCollectorConfig(t *testing.T, configYAML string) {
 	}
 
 	forbidden := []string{
-		"filelog", "k8s_attributes", "prometheus", "loki", "tempo",
+		"filelog", "k8s_attributes", prometheusChartName, "loki", "tempo",
 		"sending_queue", "file_storage", "authorization", "bearer",
 	}
 	for _, value := range forbidden {
