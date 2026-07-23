@@ -368,6 +368,32 @@ func TestPrometheusCandidatesRemainDisabledAndImmutable(t *testing.T) {
 	}
 }
 
+func TestReviewedKubernetesAPIEgressDestination(t *testing.T) {
+	values := decodeYAMLFile[map[string]any](
+		t,
+		filepath.Join("..", "..", "deploy", "observability", "values.yaml"),
+	)
+	destinations := nestedMap(t, values, "networkPolicyDestinations")
+	kubernetesAPI := nestedMap(t, destinations, "kubernetesAPI")
+	assertValue(t, kubernetesAPI, "cidr", "142.132.178.45/32")
+	assertNumber(t, kubernetesAPI, "port", 6443)
+
+	cidr, found, err := unstructured.NestedString(kubernetesAPI, "cidr")
+	if err != nil || !found {
+		t.Fatalf("read reviewed Kubernetes API CIDR: found=%t error=%v", found, err)
+	}
+	for _, forbidden := range []string{
+		"10.43.0.0/16",
+		"10.42.0.0/16",
+		"142.132.178.0/24",
+		"0.0.0.0/0",
+	} {
+		if cidr == forbidden {
+			t.Errorf("reviewed Kubernetes API destination uses broad CIDR %q", cidr)
+		}
+	}
+}
+
 func TestPrometheusCandidateImagesRenderByDigest(t *testing.T) {
 	repositoryRoot := filepath.Join("..", "..")
 	command := exec.Command(

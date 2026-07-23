@@ -173,3 +173,12 @@ kube-state-metrics:
 
   kubeRBACProxy:
     enabled: false
+
+# H8.4B0 proved that this K3s kube-router dataplane evaluates Kubernetes
+# Service egress after DNAT. Review this exact endpoint again after node
+# replacement, node readdressing, API EndpointSlice changes, or K3s network
+# reconfiguration. This value does not render a resource until H8.4B.
+networkPolicyDestinations:
+  kubernetesAPI:
+    cidr: 142.132.178.45/32
+    port: 6443

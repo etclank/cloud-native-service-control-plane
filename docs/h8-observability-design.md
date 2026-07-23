@@ -564,6 +564,17 @@ rotated without displaying it; day-to-day users receive Viewer access. A
 future public dashboard requires its own threat model and review and is not
 part of H8.
 
+H8.4B0 tested the single-node K3s `v1.36.2+k3s1` kube-router dataplane from an
+otherwise egress-isolated Pod. An exact `10.43.0.1/32` TCP 443 Service-IP rule
+did not admit the request, while the ready API backend
+`142.132.178.45/32` TCP 6443 did. The production Prometheus policy must
+therefore use the exact post-DNAT backend recorded in `values.yaml`; the full
+Service, Pod, and node CIDRs remain forbidden. Rediscover and review the value
+after node replacement or readdressing, a Kubernetes API EndpointSlice address
+or port change, a move to multiple server nodes, or K3s networking changes.
+The controlled proof and cleanup evidence is recorded in
+[`h8-prometheus-api-egress-proof.md`](h8-prometheus-api-egress-proof.md).
+
 No new Hetzner firewall rule is needed. Ports 3000, 9090, 3100, 3200, 4317,
 and 4318 remain non-public. If Grafana is ever exposed later, it requires an
 exact reviewed hostname, cert-manager production TLS, permanent HTTPS
