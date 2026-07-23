@@ -1,13 +1,12 @@
-# This NetworkPolicy allows ingress traffic
-# with Pods running on namespaces labeled with 'metrics: enabled'. Only Pods on those
-# namespaces are able to gather data from the metrics endpoint.
+# This NetworkPolicy allows only the H8.4C Prometheus Pod identity to access
+# the authenticated controller-manager metrics endpoint.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   labels:
     app.kubernetes.io/name: cloud-native-service-control-plane
     app.kubernetes.io/managed-by: kustomize
-  name: allow-metrics-traffic
+  name: prometheus-metrics-ingress
   namespace: system
 spec:
   podSelector:
@@ -17,11 +16,15 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # This allows ingress traffic from any namespace with the label metrics: enabled
     - from:
-      - namespaceSelector:
-          matchLabels:
-            metrics: enabled  # Only from namespaces with this label
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+              app.kubernetes.io/instance: observability
+              app.kubernetes.io/component: server
       ports:
         - port: 8443
           protocol: TCP

@@ -1,0 +1,168 @@
+{{- if .Values.prometheus.enabled }}
+{{- $prometheusSelector := dict
+  "app.kubernetes.io/name" "prometheus"
+  "app.kubernetes.io/instance" .Release.Name
+  "app.kubernetes.io/component" "server"
+}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-kube-state-metrics-egress
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  podSelector:
+    matchLabels:
+{{ toYaml $prometheusSelector | indent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kube-state-metrics
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              app.kubernetes.io/component: metrics
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-platform-operator-metrics-egress
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  podSelector:
+    matchLabels:
+{{ toYaml $prometheusSelector | indent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cloud-native-service-control-plane
+              control-plane: controller-manager
+      ports:
+        - protocol: TCP
+          port: 8443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-opentelemetry-collector-egress
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  podSelector:
+    matchLabels:
+{{ toYaml $prometheusSelector | indent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-collector
+              app.kubernetes.io/instance: {{ .Release.Name }}
+              component: agent-collector
+      ports:
+        - protocol: TCP
+          port: 8888
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: opentelemetry-collector-metrics-ingress
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: opentelemetry-collector
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: opentelemetry-collector
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      component: agent-collector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+{{ toYaml $prometheusSelector | indent 14 }}
+      ports:
+        - protocol: TCP
+          port: 8888
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-control-plane-api-metrics-egress
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  podSelector:
+    matchLabels:
+{{ toYaml $prometheusSelector | indent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: control-plane-api
+              app.kubernetes.io/component: api
+      ports:
+        - protocol: TCP
+          port: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-managed-demo-metrics-egress
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  podSelector:
+    matchLabels:
+{{ toYaml $prometheusSelector | indent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: applications
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: managed-service
+              app.kubernetes.io/managed-by: platform-operator
+              platform.eoghanclancy.eu/template: demo-http
+      ports:
+        - protocol: TCP
+          port: 9090
+{{- end }}

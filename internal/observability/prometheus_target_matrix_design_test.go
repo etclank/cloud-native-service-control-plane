@@ -314,7 +314,7 @@ func assertCompletePrometheusTargetDesign(
 		"ownerBatch":        job.OwnerBatch,
 		namespaceField:      job.Namespace,
 		"ownerObject":       job.OwnerObject,
-		"service":           job.Service,
+		serviceField:        job.Service,
 		"discovery.role":    job.Discovery.Role,
 		"discovery.address": job.Discovery.Address,
 		"scheme":            job.Scheme,

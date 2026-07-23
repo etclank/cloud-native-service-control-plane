@@ -70,6 +70,30 @@ func TestH84BCandidateRenderIsExplicitDeterministicAndBounded(t *testing.T) {
 			Kind: networkPolicyKind, Namespace: observabilityNamespace,
 			Name: "prometheus-kubernetes-api-egress",
 		}: {},
+		{
+			Kind: networkPolicyKind, Namespace: observabilityNamespace,
+			Name: "prometheus-kube-state-metrics-egress",
+		}: {},
+		{
+			Kind: networkPolicyKind, Namespace: observabilityNamespace,
+			Name: "prometheus-platform-operator-metrics-egress",
+		}: {},
+		{
+			Kind: networkPolicyKind, Namespace: observabilityNamespace,
+			Name: "prometheus-opentelemetry-collector-egress",
+		}: {},
+		{
+			Kind: networkPolicyKind, Namespace: observabilityNamespace,
+			Name: "opentelemetry-collector-metrics-ingress",
+		}: {},
+		{
+			Kind: networkPolicyKind, Namespace: observabilityNamespace,
+			Name: "prometheus-control-plane-api-metrics-egress",
+		}: {},
+		{
+			Kind: networkPolicyKind, Namespace: observabilityNamespace,
+			Name: "prometheus-managed-demo-metrics-egress",
+		}: {},
 		{Kind: networkPolicyKind, Namespace: observabilityNamespace, Name: "kube-state-metrics-dns-egress"}: {},
 		{
 			Kind: networkPolicyKind, Namespace: observabilityNamespace,
@@ -125,7 +149,7 @@ func TestH84BCandidateRenderIsExplicitDeterministicAndBounded(t *testing.T) {
 		t.Error("H8.4B candidate contains GitOps bootstrap configuration")
 	}
 
-	t.Logf("H8.4B candidate inventory contains %d exact objects", len(resources))
+	t.Logf("H8.4C candidate inventory contains %d exact objects", len(resources))
 }
 
 func TestH84BCandidateRuntimeSecurityStorageAndBudget(t *testing.T) {
@@ -231,7 +255,7 @@ func TestH84BCandidateRuntimeSecurityStorageAndBudget(t *testing.T) {
 	assertCandidateService(t, resources, kubeStateMetricsDeploymentName)
 }
 
-func TestH84BCandidateIdentityAndInertConfiguration(t *testing.T) {
+func TestH84CCandidateIdentityAndConfigurationSurface(t *testing.T) {
 	rendered, resources := renderH84BCandidate(t)
 
 	for _, name := range []string{prometheusServiceAccount, kubeStateMetricsServiceAccount} {
@@ -248,39 +272,34 @@ func TestH84BCandidateIdentityAndInertConfiguration(t *testing.T) {
 
 	configMap := &corev1.ConfigMap{}
 	convertResource(t, resources, namespacedKey(configMapKind, prometheusDeploymentName), configMap)
-	for _, emptyRuleFile := range []string{
+	for _, absentRuleFile := range []string{
 		"alerting_rules.yml",
 		"alerts",
 		"recording_rules.yml",
 		"rules",
 	} {
-		if strings.TrimSpace(configMap.Data[emptyRuleFile]) != "{}" {
-			t.Errorf("Prometheus rule file %q is not empty", emptyRuleFile)
+		if _, exists := configMap.Data[absentRuleFile]; exists {
+			t.Errorf("Prometheus rule file %q is rendered", absentRuleFile)
 		}
 	}
 	configuration := decodeYAML[map[string]any](t, []byte(configMap.Data["prometheus.yml"]))
 	assertMapKeys(t, configuration, []string{"global", "rule_files", "scrape_configs"})
+	ruleFiles, found, err := unstructured.NestedSlice(configuration, "rule_files")
+	if err != nil || !found || len(ruleFiles) != 0 {
+		t.Errorf("Prometheus rule_files = %#v, found=%t, error=%v", ruleFiles, found, err)
+	}
 	scrapeConfigs, found, err := unstructured.NestedSlice(configuration, "scrape_configs")
-	if err != nil || !found || len(scrapeConfigs) != 1 {
-		t.Fatalf("inert scrape_configs = %#v, found=%t, error=%v", scrapeConfigs, found, err)
-	}
-	scrapeConfig, ok := scrapeConfigs[0].(map[string]any)
-	if !ok {
-		t.Fatalf("inert scrape config has type %T", scrapeConfigs[0])
-	}
-	assertValue(t, scrapeConfig, "job_name", "h8-4b-inert-no-targets")
-	staticConfigs, found, err := unstructured.NestedSlice(scrapeConfig, "static_configs")
-	if err != nil || !found || len(staticConfigs) != 0 {
-		t.Errorf("inert static_configs = %#v, found=%t, error=%v", staticConfigs, found, err)
+	if err != nil || !found || len(scrapeConfigs) != 6 {
+		t.Fatalf("scrape_configs = %#v, found=%t, error=%v", scrapeConfigs, found, err)
 	}
 	for _, forbidden := range []string{
-		"kubernetes_sd_configs",
 		"remote_write",
 		"remote_read",
-		"bearer_token",
-		"http://",
-		"https://",
-		"localhost:9090",
+		"h8-4b-inert-no-targets",
+		"job_name: kubelet",
+		"job_name: cadvisor",
+		"10250",
+		"labelmap",
 	} {
 		if strings.Contains(configMap.Data["prometheus.yml"], forbidden) {
 			t.Errorf("inert Prometheus configuration contains %q", forbidden)
@@ -299,18 +318,13 @@ func TestH84BCandidateRBACIsMinimalAndSeparated(t *testing.T) {
 	wantPrometheusRules := []rbacv1.PolicyRule{
 		{
 			APIGroups: []string{""},
-			Resources: []string{"namespaces", "nodes", "pods", "services"},
+			Resources: []string{"pods", "services"},
 			Verbs:     []string{getVerb, listVerb, watchVerb},
 		},
 		{
 			APIGroups: []string{"discovery.k8s.io"},
 			Resources: []string{"endpointslices"},
 			Verbs:     []string{getVerb, listVerb, watchVerb},
-		},
-		{
-			APIGroups: []string{""},
-			Resources: []string{"nodes/metrics", "nodes/proxy"},
-			Verbs:     []string{getVerb},
 		},
 	}
 	if !reflect.DeepEqual(prometheus.Rules, wantPrometheusRules) {

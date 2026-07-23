@@ -156,7 +156,7 @@ func TestParseMetricsPort(t *testing.T) {
 		{name: "zero", value: "0", publicPort: DefaultPort, wantError: true},
 		{name: "negative", value: "-1", publicPort: DefaultPort, wantError: true},
 		{name: "too large", value: "65536", publicPort: DefaultPort, wantError: true},
-		{name: "non-numeric", value: "metrics", publicPort: DefaultPort, wantError: true},
+		{name: "non-numeric", value: metricsPortName, publicPort: DefaultPort, wantError: true},
 	}
 
 	for _, test := range tests {

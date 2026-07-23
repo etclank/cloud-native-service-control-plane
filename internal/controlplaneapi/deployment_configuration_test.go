@@ -31,30 +31,39 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/utils/ptr"
 )
 
 const (
-	controlPlaneAPINamespace  = "platform-system"
-	certificateKind           = "Certificate"
-	ingressKind               = "Ingress"
-	middlewareKind            = "Middleware"
-	managedServiceRoleName    = "control-plane-api-managedservice"
-	productionIssuerName      = "letsencrypt-production"
-	publicAPIHostname         = "api.platform.eoghanclancy.eu"
-	rateLimitMiddlewareName   = "control-plane-api-rate-limit"
-	redirectMiddlewareName    = "control-plane-api-redirect-https"
-	serviceAccountKind        = "ServiceAccount"
-	tlsSecretName             = "control-plane-api-tls"
-	roleKind                  = "Role"
-	apiOTLPClientLabel        = "observability.eoghanclancy.eu/otlp-client"
-	apiOTLPClientValue        = "control-plane-api"
-	diagnosticValidationLabel = "observability.eoghanclancy.eu/validation"
-	apiApplicationNameLabel   = "app.kubernetes.io/name"
-	approvedAPIImage          = "ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:" +
+	controlPlaneAPINamespace     = "platform-system"
+	certificateKind              = "Certificate"
+	ingressKind                  = "Ingress"
+	middlewareKind               = "Middleware"
+	networkPolicyKind            = "NetworkPolicy"
+	managedServiceRoleName       = "control-plane-api-managedservice"
+	productionIssuerName         = "letsencrypt-production"
+	publicAPIHostname            = "api.platform.eoghanclancy.eu"
+	rateLimitMiddlewareName      = "control-plane-api-rate-limit"
+	redirectMiddlewareName       = "control-plane-api-redirect-https"
+	serviceAccountKind           = "ServiceAccount"
+	tlsSecretName                = "control-plane-api-tls"
+	roleKind                     = "Role"
+	apiOTLPClientLabel           = "observability.eoghanclancy.eu/otlp-client"
+	apiOTLPClientValue           = "control-plane-api"
+	diagnosticValidationLabel    = "observability.eoghanclancy.eu/validation"
+	apiApplicationNameLabel      = "app.kubernetes.io/name"
+	apiApplicationComponentLabel = "app.kubernetes.io/component"
+	prometheusNamespace          = "observability"
+	prometheusInstanceLabel      = "app.kubernetes.io/instance"
+	apiMetricsIngressPolicy      = "control-plane-api-prometheus-metrics-ingress"
+	managedDemoMetricsPolicy     = "managed-demo-prometheus-metrics-ingress"
+	metricsPortName              = "metrics"
+	approvedAPIImage             = "ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:" +
 		"604c16f04b00272b7b45072ff0c50c5c2d081fbc4ee795e62a4ed1fc861df36e"
 )
 
@@ -127,6 +136,16 @@ func TestRenderedControlPlaneAPIConfiguration(t *testing.T) {
 			Name:      controlPlaneAPIResourceName,
 		}: {},
 		{
+			Kind:      networkPolicyKind,
+			Namespace: controlPlaneAPINamespace,
+			Name:      apiMetricsIngressPolicy,
+		}: {},
+		{
+			Kind:      networkPolicyKind,
+			Namespace: ApplicationsNamespace,
+			Name:      managedDemoMetricsPolicy,
+		}: {},
+		{
 			Kind:      certificateKind,
 			Namespace: controlPlaneAPINamespace,
 			Name:      controlPlaneAPIResourceName,
@@ -159,6 +178,7 @@ func TestRenderedControlPlaneAPIConfiguration(t *testing.T) {
 	assertControlPlaneAPIRBAC(t, resources)
 	assertControlPlaneAPIDeployment(t, resources)
 	assertControlPlaneAPIService(t, resources)
+	assertMetricsNetworkPolicies(t, resources)
 	assertControlPlaneAPITLS(t, resources)
 }
 
@@ -341,7 +361,7 @@ func assertAPIContainer(t *testing.T, container *corev1.Container) {
 			Protocol:      corev1.ProtocolTCP,
 		},
 		{
-			Name:          "metrics",
+			Name:          metricsPortName,
 			ContainerPort: 9090,
 			Protocol:      corev1.ProtocolTCP,
 		},
@@ -456,9 +476,22 @@ func assertControlPlaneAPIService(
 		Namespace: controlPlaneAPINamespace,
 		Name:      controlPlaneAPIResourceName,
 	}, service)
+	wantPorts := []corev1.ServicePort{
+		{
+			Name:       "http",
+			Protocol:   corev1.ProtocolTCP,
+			Port:       80,
+			TargetPort: intstr.FromString("http"),
+		},
+		{
+			Name:       metricsPortName,
+			Protocol:   corev1.ProtocolTCP,
+			Port:       9090,
+			TargetPort: intstr.FromString(metricsPortName),
+		},
+	}
 	if service.Spec.Type != corev1.ServiceTypeClusterIP ||
-		len(service.Spec.Ports) != 1 || service.Spec.Ports[0].Port != 80 ||
-		service.Spec.Ports[0].TargetPort != intstr.FromString("http") {
+		!reflect.DeepEqual(service.Spec.Ports, wantPorts) {
 		t.Errorf("control-plane API Service = %#v", service.Spec)
 	}
 	wantSelector := map[string]string{
@@ -476,6 +509,69 @@ func assertControlPlaneAPIService(
 			controlPlaneAPIDiagnosticLabels(),
 			service.Spec.Selector,
 		)
+	}
+}
+
+func assertMetricsNetworkPolicies(
+	t *testing.T,
+	resources map[renderedResourceKey]*unstructured.Unstructured,
+) {
+	t.Helper()
+
+	prometheusPeer := networkingv1.NetworkPolicyPeer{
+		NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+			"kubernetes.io/metadata.name": prometheusNamespace,
+		}},
+		PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+			apiApplicationNameLabel:      "prometheus",
+			prometheusInstanceLabel:      prometheusNamespace,
+			apiApplicationComponentLabel: "server",
+		}},
+	}
+	cases := []struct {
+		name      string
+		namespace string
+		selector  map[string]string
+	}{
+		{
+			name:      apiMetricsIngressPolicy,
+			namespace: controlPlaneAPINamespace,
+			selector: map[string]string{
+				apiApplicationNameLabel:      controlPlaneAPIResourceName,
+				apiApplicationComponentLabel: "api",
+			},
+		},
+		{
+			name:      managedDemoMetricsPolicy,
+			namespace: ApplicationsNamespace,
+			selector: map[string]string{
+				apiApplicationNameLabel:             "managed-service",
+				"app.kubernetes.io/managed-by":      "platform-operator",
+				"platform.eoghanclancy.eu/template": "demo-http",
+			},
+		},
+	}
+	for _, testCase := range cases {
+		policy := &networkingv1.NetworkPolicy{}
+		convertRenderedResource(t, resources, renderedResourceKey{
+			Kind:      networkPolicyKind,
+			Namespace: testCase.namespace,
+			Name:      testCase.name,
+		}, policy)
+		want := networkingv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{MatchLabels: testCase.selector},
+			PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+			Ingress: []networkingv1.NetworkPolicyIngressRule{{
+				From: []networkingv1.NetworkPolicyPeer{prometheusPeer},
+				Ports: []networkingv1.NetworkPolicyPort{{
+					Protocol: ptr.To(corev1.ProtocolTCP),
+					Port:     ptr.To(intstr.FromInt32(9090)),
+				}},
+			}},
+		}
+		if !reflect.DeepEqual(policy.Spec, want) {
+			t.Errorf("metrics NetworkPolicy %q = %#v, want %#v", testCase.name, policy.Spec, want)
+		}
 	}
 }
 

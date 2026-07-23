@@ -61,7 +61,7 @@ const (
 	alertmanagerChartName        = "alertmanager"
 	nodeExporterChartName        = "prometheus-node-exporter"
 	pushgatewayChartName         = "prometheus-pushgateway"
-	wrapperChartVersion          = "0.5.0"
+	wrapperChartVersion          = "0.6.0"
 	collectorChartSHA256         = "b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5"
 	prometheusChartSHA256        = "24f5f056dd5cb00e98ffb905c9c2779e810153f1b5a6306bf2cc2c5a4f02a0b9"
 	kubeStateMetricsChartSHA256  = "b5a2436bd62226ff30a57b7237eaf2f99bac6be675484c4082bcd4312680de12"
@@ -82,6 +82,17 @@ const (
 	persistentVolumeClaimKind    = "PersistentVolumeClaim"
 	serverValue                  = "server"
 	metricsValue                 = "metrics"
+	otlpHTTPValue                = "otlp-http"
+	serviceField                 = "service"
+	platformSystemNamespace      = "platform-system"
+	metaKubernetesNamespace      = "__meta_kubernetes_namespace"
+	metaKubernetesServiceName    = "__meta_kubernetes_service_name"
+	metaKubernetesServiceAppName = "__meta_kubernetes_service_label_app_kubernetes_io_name"
+	metaKubernetesPodAppName     = "__meta_kubernetes_pod_label_app_kubernetes_io_name"
+	metaKubernetesEndpointPort   = "__meta_kubernetes_endpointslice_port_name"
+	metaKubernetesEndpointReady  = "__meta_kubernetes_endpointslice_endpoint_conditions_ready"
+	readyEndpointRegex           = "^true$"
+	metricsPortRegex             = "^metrics$"
 	getVerb                      = "get"
 	listVerb                     = "list"
 	watchVerb                    = "watch"
@@ -699,10 +710,10 @@ func assertCollectorService(
 			TargetPort: intstr.FromString(collectorOTLPReceiver),
 		},
 		{
-			Name:       "otlp-http",
+			Name:       otlpHTTPValue,
 			Protocol:   corev1.ProtocolTCP,
 			Port:       4318,
-			TargetPort: intstr.FromString("otlp-http"),
+			TargetPort: intstr.FromString(otlpHTTPValue),
 		},
 	}
 	if service.Spec.Type != corev1.ServiceTypeClusterIP ||
@@ -946,7 +957,7 @@ func assertContainerPorts(t *testing.T, ports []corev1.ContainerPort) {
 
 	wantPorts := []corev1.ContainerPort{
 		{Name: collectorOTLPReceiver, ContainerPort: 4317, Protocol: corev1.ProtocolTCP},
-		{Name: "otlp-http", ContainerPort: 4318, Protocol: corev1.ProtocolTCP},
+		{Name: otlpHTTPValue, ContainerPort: 4318, Protocol: corev1.ProtocolTCP},
 	}
 	if !reflect.DeepEqual(ports, wantPorts) {
 		t.Errorf("Collector ports = %#v, want %#v", ports, wantPorts)
@@ -1005,7 +1016,7 @@ func assertCollectorConfig(t *testing.T, configYAML string) {
 		t.Fatalf("decode Collector configuration: %v", err)
 	}
 
-	assertMapKeys(t, config, []string{"exporters", "extensions", "processors", "receivers", "service"})
+	assertMapKeys(t, config, []string{"exporters", "extensions", "processors", "receivers", serviceField})
 	exporters := nestedMap(t, config, "exporters")
 	assertMapKeys(t, exporters, []string{"nop"})
 	receivers := nestedMap(t, config, "receivers")

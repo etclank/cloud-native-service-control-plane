@@ -661,6 +661,17 @@ H8.4C still owns every scrape job and target-specific egress rule, and H8.4D
 still owns the exact AppProject permission delta and inert Application
 revision change.
 
+H8.4C now implements the six accepted jobs in the disabled candidate, reduces
+discovery RBAC to the exact job consumers, and adds the internal metrics ports
+and target-specific NetworkPolicies. The default Collector render remains
+unchanged; no GitOps resource or live resource changes in this repository
+slice. The exact configuration, render evidence, and remaining boundaries are
+recorded in
+[`h8-prometheus-scrape-foundation.md`](h8-prometheus-scrape-foundation.md).
+H8.4C-K still owns kubelet/cAdvisor prerequisites and allowlists. H8.4D owns
+restricted GitOps registration, H8.4E owns live validation, and H8.4 remains
+incomplete.
+
 No new Hetzner firewall rule is needed. Ports 3000, 9090, 3100, 3200, 4317,
 and 4318 remain non-public. If Grafana is ever exposed later, it requires an
 exact reviewed hostname, cert-manager production TLS, permanent HTTPS

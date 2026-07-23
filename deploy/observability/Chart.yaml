@@ -2,7 +2,7 @@ apiVersion: v2
 name: cloud-native-service-control-plane-observability
 description: Resource-bounded observability components for the portfolio platform
 type: application
-version: 0.5.0
+version: 0.6.0
 appVersion: "0.1.0"
 dependencies:
   - name: opentelemetry-collector

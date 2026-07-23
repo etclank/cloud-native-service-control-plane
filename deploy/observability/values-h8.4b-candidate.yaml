@@ -1,7 +1,19 @@
-# Local review fixture for the H8.4B runtime foundation. The production
-# values.yaml keeps both dependencies disabled, and Argo CD does not reference
-# this file. H8.4C must replace the inert zero-target Prometheus configuration
-# before any deployment is proposed.
+# Local review fixture for the H8.4C scrape configuration foundation. The
+# production values.yaml keeps both dependencies disabled, and Argo CD does not
+# reference this file.
+opentelemetry-collector:
+  alternateConfig:
+    service:
+      telemetry:
+        metrics:
+          address: ${env:MY_POD_IP}:8888
+  ports:
+    metrics:
+      enabled: true
+      containerPort: 8888
+      servicePort: 8888
+      protocol: TCP
+
 prometheus:
   enabled: true
 

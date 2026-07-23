@@ -169,8 +169,8 @@ func assertObservabilityProject(t *testing.T, project *unstructured.Unstructured
 		t.Errorf("project sourceRepos = %#v", got)
 	}
 	wantDestinations := []any{map[string]any{
-		"namespace": observabilityNamespace,
-		serverValue: clusterServer,
+		namespaceField: observabilityNamespace,
+		serverValue:    clusterServer,
 	}}
 	if got := nestedSlice(t, project.Object, "spec", "destinations"); !reflect.DeepEqual(got, wantDestinations) {
 		t.Errorf("project destinations = %#v, want %#v", got, wantDestinations)
@@ -214,8 +214,8 @@ func assertObservabilityApplication(t *testing.T, application *unstructured.Unst
 	assertFieldsAbsent(t, spec, nil, "sources", "retry")
 
 	wantDestination := map[string]any{
-		"namespace": observabilityNamespace,
-		serverValue: clusterServer,
+		namespaceField: observabilityNamespace,
+		serverValue:    clusterServer,
 	}
 	if got := bootstrapNestedMap(t, spec, "destination"); !reflect.DeepEqual(got, wantDestination) {
 		t.Errorf("Application destination = %#v, want %#v", got, wantDestination)

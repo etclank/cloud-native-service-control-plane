@@ -201,10 +201,13 @@ var _ = Describe("ManagedService child reconciliation", func() {
 			service.Spec.Selector,
 		)).To(BeFalse())
 		Expect(service.Spec.Type).To(Equal(corev1.ServiceTypeClusterIP))
-		Expect(service.Spec.Ports).To(HaveLen(1))
+		Expect(service.Spec.Ports).To(HaveLen(2))
 		Expect(service.Spec.Ports[0].Name).To(Equal(managedServiceHTTPPortName))
 		Expect(service.Spec.Ports[0].Port).To(Equal(int32(80)))
 		Expect(service.Spec.Ports[0].TargetPort.String()).To(Equal(managedServiceHTTPPortName))
+		Expect(service.Spec.Ports[1].Name).To(Equal(managedServiceMetricsPortName))
+		Expect(service.Spec.Ports[1].Port).To(Equal(int32(9090)))
+		Expect(service.Spec.Ports[1].TargetPort.String()).To(Equal(managedServiceMetricsPortName))
 
 		deploymentResourceVersion := deployment.ResourceVersion
 		serviceResourceVersion := service.ResourceVersion
@@ -303,6 +306,7 @@ var _ = Describe("ManagedService child reconciliation", func() {
 		)).To(Succeed())
 
 		Expect(correctedService.Spec.Ports[0].Port).To(Equal(int32(80)))
+		Expect(correctedService.Spec.Ports[1].Port).To(Equal(int32(9090)))
 		Expect(
 			correctedService.Spec.Selector,
 		).NotTo(HaveKey("unexpected"))
