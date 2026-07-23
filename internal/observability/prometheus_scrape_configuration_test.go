@@ -174,17 +174,29 @@ func TestH84CCandidateMetricsExposureAndTargetPolicies(t *testing.T) {
 		collectorConfigMap,
 	)
 	collectorConfig := decodeYAML[map[string]any](t, []byte(collectorConfigMap.Data["relay"]))
-	metricsAddress, found, err := unstructured.NestedString(
+	metricsReaders, found, err := unstructured.NestedSlice(
 		collectorConfig,
 		"service",
 		"telemetry",
 		"metrics",
-		"address",
+		"readers",
 	)
-	if err != nil || !found || metricsAddress != "${env:MY_POD_IP}:8888" {
+	wantMetricsReaders := []any{
+		map[string]any{
+			"pull": map[string]any{
+				"exporter": map[string]any{
+					"prometheus": map[string]any{
+						"host": "${env:MY_POD_IP}",
+						"port": float64(8888),
+					},
+				},
+			},
+		},
+	}
+	if err != nil || !found || !reflect.DeepEqual(metricsReaders, wantMetricsReaders) {
 		t.Errorf(
-			"Collector telemetry metrics address = %q, found=%t, error=%v",
-			metricsAddress,
+			"Collector telemetry metrics readers = %#v, found=%t, error=%v",
+			metricsReaders,
 			found,
 			err,
 		)
