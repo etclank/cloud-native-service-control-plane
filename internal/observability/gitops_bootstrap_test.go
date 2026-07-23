@@ -37,7 +37,7 @@ const (
 	argoNamespace             = "argocd"
 	bootstrapPartOf           = "cloud-native-service-control-plane"
 	clusterServer             = "https://kubernetes.default.svc"
-	observabilityRevision     = "14d483d2169352be2d196b083d963f4ffdbeabf3"
+	observabilityRevision     = "34420d6c3a24e7a22d8b0a9cbb1e738dca08552c"
 	privateRepository         = "git@github.com:etclank/cloud-native-service-control-plane.git"
 	observabilityProjectKind  = "AppProject"
 	observabilityAppKind      = "Application"
