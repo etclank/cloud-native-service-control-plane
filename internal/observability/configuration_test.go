@@ -58,7 +58,10 @@ const (
 	kubeStateMetricsChartVersion = "7.8.1"
 	kubeStateMetricsAppVersion   = "2.19.1"
 	prometheusChartRepository    = "https://prometheus-community.github.io/helm-charts"
-	wrapperChartVersion          = "0.4.0"
+	alertmanagerChartName        = "alertmanager"
+	nodeExporterChartName        = "prometheus-node-exporter"
+	pushgatewayChartName         = "prometheus-pushgateway"
+	wrapperChartVersion          = "0.5.0"
 	collectorChartSHA256         = "b592ea064d9b906930cac2d22b88eeb1bc82f12d5ed07fd20792de2c051ca3c5"
 	prometheusChartSHA256        = "24f5f056dd5cb00e98ffb905c9c2779e810153f1b5a6306bf2cc2c5a4f02a0b9"
 	kubeStateMetricsChartSHA256  = "b5a2436bd62226ff30a57b7237eaf2f99bac6be675484c4082bcd4312680de12"
@@ -69,6 +72,19 @@ const (
 	otlpIngressPolicyName        = "opentelemetry-collector-otlp-ingress"
 	namespaceKind                = "Namespace"
 	networkPolicyKind            = "NetworkPolicy"
+	serviceAccountKind           = "ServiceAccount"
+	configMapKind                = "ConfigMap"
+	serviceKind                  = "Service"
+	daemonSetKind                = "DaemonSet"
+	clusterRoleKind              = "ClusterRole"
+	clusterRoleBindingKind       = "ClusterRoleBinding"
+	deploymentKind               = "Deployment"
+	persistentVolumeClaimKind    = "PersistentVolumeClaim"
+	serverValue                  = "server"
+	metricsValue                 = "metrics"
+	getVerb                      = "get"
+	listVerb                     = "list"
+	watchVerb                    = "watch"
 	applicationNameLabel         = "app.kubernetes.io/name"
 	otlpClientLabel              = "observability.eoghanclancy.eu/otlp-client"
 	podSecurityVersion           = "v1.36"
@@ -240,7 +256,7 @@ func TestPrometheusNestedDependencySupplyChain(t *testing.T) {
 	parentChart := decodeYAML[chartMetadata](t, files["prometheus/Chart.yaml"])
 	wantDeclared := []chartDependency{
 		{
-			Name:       "alertmanager",
+			Name:       alertmanagerChartName,
 			Repository: prometheusChartRepository,
 			Version:    "1.40.*",
 			Condition:  "alertmanager.enabled",
@@ -252,13 +268,13 @@ func TestPrometheusNestedDependencySupplyChain(t *testing.T) {
 			Condition:  "kube-state-metrics.enabled",
 		},
 		{
-			Name:       "prometheus-node-exporter",
+			Name:       nodeExporterChartName,
 			Repository: prometheusChartRepository,
 			Version:    "4.56.*",
 			Condition:  "prometheus-node-exporter.enabled",
 		},
 		{
-			Name:       "prometheus-pushgateway",
+			Name:       pushgatewayChartName,
 			Repository: prometheusChartRepository,
 			Version:    "3.7.*",
 			Condition:  "prometheus-pushgateway.enabled",
@@ -269,19 +285,19 @@ func TestPrometheusNestedDependencySupplyChain(t *testing.T) {
 	}
 
 	wantLocked := []chartDependency{
-		{Name: "alertmanager", Repository: prometheusChartRepository, Version: "1.40.3"},
+		{Name: alertmanagerChartName, Repository: prometheusChartRepository, Version: "1.40.3"},
 		{
 			Name:       kubeStateMetricsChartName,
 			Repository: prometheusChartRepository,
 			Version:    kubeStateMetricsChartVersion,
 		},
 		{
-			Name:       "prometheus-node-exporter",
+			Name:       nodeExporterChartName,
 			Repository: prometheusChartRepository,
 			Version:    "4.56.1",
 		},
 		{
-			Name:       "prometheus-pushgateway",
+			Name:       pushgatewayChartName,
 			Repository: prometheusChartRepository,
 			Version:    "3.7.0",
 		},
@@ -294,17 +310,17 @@ func TestPrometheusNestedDependencySupplyChain(t *testing.T) {
 
 	wantNestedCharts := map[string]chartMetadata{
 		"prometheus/charts/alertmanager/Chart.yaml": {
-			Name: "alertmanager", Version: "1.40.3", AppVersion: "v0.33.1",
+			Name: alertmanagerChartName, Version: "1.40.3", AppVersion: "v0.33.1",
 		},
 		"prometheus/charts/kube-state-metrics/Chart.yaml": {
 			Name: kubeStateMetricsChartName, Version: kubeStateMetricsChartVersion,
 			AppVersion: kubeStateMetricsAppVersion,
 		},
 		"prometheus/charts/prometheus-node-exporter/Chart.yaml": {
-			Name: "prometheus-node-exporter", Version: "4.56.1", AppVersion: "1.12.1",
+			Name: nodeExporterChartName, Version: "4.56.1", AppVersion: "1.12.1",
 		},
 		"prometheus/charts/prometheus-pushgateway/Chart.yaml": {
-			Name: "prometheus-pushgateway", Version: "3.7.0", AppVersion: "v1.11.3",
+			Name: pushgatewayChartName, Version: "3.7.0", AppVersion: "v1.11.3",
 		},
 	}
 	for path, want := range wantNestedCharts {
@@ -321,7 +337,7 @@ func TestPrometheusCandidatesRemainDisabledAndImmutable(t *testing.T) {
 	values := decodeYAMLFile[map[string]any](t, valuesPath)
 
 	prometheus := nestedMap(t, values, prometheusChartName)
-	assertBoolean(t, prometheus, "enabled", false)
+	assertDisabled(t, prometheus)
 	serverImage := nestedMap(t, nestedMap(t, prometheus, "server"), "image")
 	assertValue(t, serverImage, "repository", "quay.io/prometheus/prometheus")
 	if _, found := serverImage["tag"]; found {
@@ -333,15 +349,15 @@ func TestPrometheusCandidatesRemainDisabledAndImmutable(t *testing.T) {
 		"digest",
 		"sha256:bd2dcadfb0d1096e2a4c21817ac7af918e2f19ff628e4bf25fd67a924c13dd80",
 	)
-	assertBoolean(t, nestedMap(t, nestedMap(t, prometheus, "configmapReload"), "prometheus"), "enabled", false)
+	assertDisabled(t, nestedMap(t, nestedMap(t, prometheus, "configmapReload"), "prometheus"))
 	for _, component := range []string{
-		"alertmanager", "kube-state-metrics", "prometheus-node-exporter", "prometheus-pushgateway",
+		alertmanagerChartName, kubeStateMetricsChartName, nodeExporterChartName, pushgatewayChartName,
 	} {
-		assertBoolean(t, nestedMap(t, prometheus, component), "enabled", false)
+		assertDisabled(t, nestedMap(t, prometheus, component))
 	}
 
 	kubeStateMetrics := nestedMap(t, values, kubeStateMetricsChartName)
-	assertBoolean(t, kubeStateMetrics, "enabled", false)
+	assertDisabled(t, kubeStateMetrics)
 	kubeStateMetricsImage := nestedMap(t, kubeStateMetrics, "image")
 	assertValue(t, kubeStateMetricsImage, "registry", "registry.k8s.io")
 	assertValue(t, kubeStateMetricsImage, "repository", "kube-state-metrics/kube-state-metrics")
@@ -352,7 +368,7 @@ func TestPrometheusCandidatesRemainDisabledAndImmutable(t *testing.T) {
 		"sha",
 		"sha256:7661da8c99b733d43117e4cba12bd9865d335e5777191d0af3d789807aded9f4",
 	)
-	assertBoolean(t, nestedMap(t, kubeStateMetrics, "kubeRBACProxy"), "enabled", false)
+	assertDisabled(t, nestedMap(t, kubeStateMetrics, "kubeRBACProxy"))
 
 	valuesContents, err := os.ReadFile(valuesPath)
 	if err != nil {
@@ -403,10 +419,13 @@ func TestPrometheusCandidateImagesRenderByDigest(t *testing.T) {
 		filepath.Join(repositoryRoot, "deploy", "observability"),
 		"--namespace",
 		observabilityNamespace,
-		"--set",
-		"prometheus.enabled=true",
-		"--set",
-		"kube-state-metrics.enabled=true",
+		"--values",
+		filepath.Join(
+			repositoryRoot,
+			"deploy",
+			"observability",
+			"values-h8.4b-candidate.yaml",
+		),
 	)
 	rendered, err := command.CombinedOutput()
 	if err != nil {
@@ -459,13 +478,21 @@ func readTarGzipFiles(t *testing.T, path string, want []string) map[string][]byt
 	if err != nil {
 		t.Fatalf("open chart archive: %v", err)
 	}
-	defer archive.Close()
+	defer func() {
+		if closeErr := archive.Close(); closeErr != nil {
+			t.Errorf("close chart archive: %v", closeErr)
+		}
+	}()
 
 	gzipReader, err := gzip.NewReader(archive)
 	if err != nil {
 		t.Fatalf("open chart gzip stream: %v", err)
 	}
-	defer gzipReader.Close()
+	defer func() {
+		if closeErr := gzipReader.Close(); closeErr != nil {
+			t.Errorf("close chart gzip stream: %v", closeErr)
+		}
+	}()
 
 	wanted := make(map[string]struct{}, len(want))
 	for _, name := range want {
@@ -510,22 +537,22 @@ func TestRenderedCollectorPackage(t *testing.T) {
 			Name: observabilityNamespace,
 		}: {},
 		{
-			Kind:      "ServiceAccount",
+			Kind:      serviceAccountKind,
 			Namespace: observabilityNamespace,
 			Name:      collectorChartName,
 		}: {},
 		{
-			Kind:      "ConfigMap",
+			Kind:      configMapKind,
 			Namespace: observabilityNamespace,
 			Name:      collectorResourceName,
 		}: {},
 		{
-			Kind:      "DaemonSet",
+			Kind:      daemonSetKind,
 			Namespace: observabilityNamespace,
 			Name:      collectorResourceName,
 		}: {},
 		{
-			Kind:      "Service",
+			Kind:      serviceKind,
 			Namespace: observabilityNamespace,
 			Name:      collectorChartName,
 		}: {},
@@ -559,7 +586,7 @@ func TestRenderedCollectorPackage(t *testing.T) {
 
 	serviceAccount := &corev1.ServiceAccount{}
 	convertResource(t, resources, objectKey{
-		Kind:      "ServiceAccount",
+		Kind:      serviceAccountKind,
 		Namespace: observabilityNamespace,
 		Name:      collectorChartName,
 	}, serviceAccount)
@@ -567,7 +594,7 @@ func TestRenderedCollectorPackage(t *testing.T) {
 
 	configMap := &corev1.ConfigMap{}
 	convertResource(t, resources, objectKey{
-		Kind:      "ConfigMap",
+		Kind:      configMapKind,
 		Namespace: observabilityNamespace,
 		Name:      collectorResourceName,
 	}, configMap)
@@ -575,7 +602,7 @@ func TestRenderedCollectorPackage(t *testing.T) {
 
 	daemonSet := &appsv1.DaemonSet{}
 	convertResource(t, resources, objectKey{
-		Kind:      "DaemonSet",
+		Kind:      daemonSetKind,
 		Namespace: observabilityNamespace,
 		Name:      collectorResourceName,
 	}, daemonSet)
@@ -583,7 +610,7 @@ func TestRenderedCollectorPackage(t *testing.T) {
 
 	service := &corev1.Service{}
 	convertResource(t, resources, objectKey{
-		Kind:      "Service",
+		Kind:      serviceKind,
 		Namespace: observabilityNamespace,
 		Name:      collectorChartName,
 	}, service)
@@ -1003,8 +1030,8 @@ func assertCollectorConfig(t *testing.T, configYAML string) {
 
 	service := nestedMap(t, config, "service")
 	pipelines := nestedMap(t, service, "pipelines")
-	assertMapKeys(t, pipelines, []string{"logs", "metrics", "traces"})
-	for _, signal := range []string{"logs", "metrics", "traces"} {
+	assertMapKeys(t, pipelines, []string{"logs", metricsValue, "traces"})
+	for _, signal := range []string{"logs", metricsValue, "traces"} {
 		pipeline := nestedMap(t, pipelines, signal)
 		assertStringSlice(t, pipeline, "receivers", []string{collectorOTLPReceiver})
 		assertStringSlice(t, pipeline, "processors", []string{"memory_limiter", "batch"})
@@ -1146,12 +1173,12 @@ func assertValue(t *testing.T, object map[string]any, field string, want string)
 	}
 }
 
-func assertBoolean(t *testing.T, object map[string]any, field string, want bool) {
+func assertDisabled(t *testing.T, object map[string]any) {
 	t.Helper()
 
-	got, found, err := unstructured.NestedBool(object, field)
-	if err != nil || !found || got != want {
-		t.Errorf("field %q = %t, found=%t, error=%v, want %t", field, got, found, err, want)
+	got, found, err := unstructured.NestedBool(object, "enabled")
+	if err != nil || !found || got {
+		t.Errorf("field %q = %t, found=%t, error=%v, want false", "enabled", got, found, err)
 	}
 }
 

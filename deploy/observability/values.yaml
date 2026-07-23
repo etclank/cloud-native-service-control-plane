@@ -139,15 +139,83 @@ opentelemetry-collector:
   extraVolumes: []
   extraVolumeMounts: []
 
-# H8.4A records immutable Prometheus supply-chain candidates only. H8.4B owns
-# the reviewed runtime, storage, RBAC, scrape, and network configuration.
+# Prometheus and kube-state-metrics remain disabled in the production render.
+# values-h8.4b-candidate.yaml enables this reviewed runtime foundation for
+# deterministic local rendering only; H8.4C owns every real scrape target.
 prometheus:
   enabled: false
+
+  rbac:
+    create: false
+
+  serviceAccounts:
+    server:
+      create: true
+      name: prometheus-server
+      automountServiceAccountToken: true
 
   server:
     image:
       repository: quay.io/prometheus/prometheus
       digest: sha256:bd2dcadfb0d1096e2a4c21817ac7af918e2f19ff628e4bf25fd67a924c13dd80
+
+    replicaCount: 1
+    automountServiceAccountToken: true
+    enableServiceLinks: false
+    hostNetwork: false
+
+    strategy:
+      type: Recreate
+    terminationGracePeriodSeconds: 300
+
+    retention: 72h
+    retentionSize: 2GB
+    extraFlags: []
+    remoteWrite: []
+    remoteRead: []
+
+    persistentVolume:
+      enabled: true
+      accessModes:
+        - ReadWriteOnce
+      storageClass: local-path
+      size: 3Gi
+      mountPath: /data
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 400m
+        memory: 512Mi
+
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+      fsGroup: 65534
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      privileged: false
+      readOnlyRootFilesystem: true
+      runAsNonRoot: true
+      runAsUser: 65534
+      runAsGroup: 65534
+      capabilities:
+        drop:
+          - ALL
+
+    service:
+      enabled: true
+      type: ClusterIP
+      servicePort: 80
+      gRPC:
+        enabled: false
 
   configmapReload:
     prometheus:
@@ -162,6 +230,31 @@ prometheus:
   prometheus-pushgateway:
     enabled: false
 
+  scrapeConfigs:
+    prometheus:
+      enabled: false
+    kubernetes-api-servers:
+      enabled: false
+    kubernetes-nodes:
+      enabled: false
+    kubernetes-nodes-cadvisor:
+      enabled: false
+    kubernetes-service-endpoints:
+      enabled: false
+    kubernetes-service-endpoints-slow:
+      enabled: false
+    prometheus-pushgateway:
+      enabled: false
+    kubernetes-services:
+      enabled: false
+    kubernetes-pods:
+      enabled: false
+    kubernetes-pods-slow:
+      enabled: false
+    h8-4b-inert-no-targets:
+      enabled: true
+      static_configs: []
+
 kube-state-metrics:
   enabled: false
 
@@ -173,6 +266,68 @@ kube-state-metrics:
 
   kubeRBACProxy:
     enabled: false
+
+  rbac:
+    create: false
+
+  serviceAccount:
+    create: true
+    name: kube-state-metrics
+    automountServiceAccountToken: true
+  automountServiceAccountToken: true
+
+  replicas: 1
+  updateStrategy: Recreate
+  hostNetwork: false
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  collectors:
+    - daemonsets
+    - deployments
+    - namespaces
+    - nodes
+    - persistentvolumeclaims
+    - pods
+    - replicasets
+    - statefulsets
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
+  securityContext:
+    enabled: true
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    fsGroup: null
+    seccompProfile:
+      type: RuntimeDefault
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    privileged: false
+    readOnlyRootFilesystem: true
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    capabilities:
+      drop:
+        - ALL
+
+  prometheusScrape: false
+  selfMonitor:
+    enabled: false
+  prometheus:
+    monitor:
+      enabled: false
 
 # H8.4B0 proved that this K3s kube-router dataplane evaluates Kubernetes
 # Service egress after DNAT. Review this exact endpoint again after node

@@ -575,6 +575,21 @@ or port change, a move to multiple server nodes, or K3s networking changes.
 The controlled proof and cleanup evidence is recorded in
 [`h8-prometheus-api-egress-proof.md`](h8-prometheus-api-egress-proof.md).
 
+H8.4B implements this as a disabled-by-default, locally renderable candidate
+foundation. Prometheus and kube-state-metrics have separate ServiceAccounts,
+minimum repository-owned RBAC, immutable images, explicit resources and
+security contexts, and exact DNS and API egress. The candidate Prometheus
+configuration contains only an inert zero-target placeholder; it has no
+Kubernetes discovery, remote write, external endpoint, or real scrape target.
+Prometheus uses a 3Gi `local-path` ReadWriteOnce claim, 72h/2GB dual retention,
+one Recreate replica, and a 300-second termination grace period for TSDB/WAL
+shutdown. The detailed candidate inventory and rollback boundary are recorded
+in
+[`h8-prometheus-runtime-foundation.md`](h8-prometheus-runtime-foundation.md).
+H8.4C still owns every scrape job and target-specific egress rule, and H8.4D
+still owns the exact AppProject permission delta and inert Application
+revision change.
+
 No new Hetzner firewall rule is needed. Ports 3000, 9090, 3100, 3200, 4317,
 and 4318 remain non-public. If Grafana is ever exposed later, it requires an
 exact reviewed hostname, cert-manager production TLS, permanent HTTPS
