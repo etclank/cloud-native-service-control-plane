@@ -1,0 +1,536 @@
+{
+  "version": "h8.4c0",
+  "global": {
+    "scrapeInterval": "30s",
+    "evaluationInterval": "30s",
+    "serviceAccountTokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+    "prometheusPodSelector": {
+      "app.kubernetes.io/name": "prometheus",
+      "app.kubernetes.io/instance": "observability",
+      "app.kubernetes.io/component": "server"
+    }
+  },
+  "cardinalityPolicy": {
+    "labelmapAllowed": false,
+    "copiedKubernetesLabelsOrAnnotations": [],
+    "forbiddenTargetLabels": [
+      "pod_uid",
+      "container_id",
+      "image_id",
+      "endpoint_slice",
+      "request_id",
+      "trace_id",
+      "message",
+      "url",
+      "bearer_identity"
+    ],
+    "discoveryMetadataDisposition": "Prometheus discards all __meta_kubernetes_* labels after target relabeling; no labelmap action is permitted.",
+    "metricFiltering": "Do not add speculative metric-name filtering to accepted small targets. kube-state-metrics remains bounded by its exact eight-collector allowlist. kubelet and cAdvisor remain deferred until an explicit metric-name and label allowlist is approved."
+  },
+  "jobs": [
+    {
+      "id": "prometheus-self",
+      "status": "accepted",
+      "purpose": "Observe Prometheus process, scrape, and TSDB health without opening a network path.",
+      "ownerBatch": "H8.4C",
+      "deferredReason": "",
+      "namespace": "observability",
+      "ownerObject": "Deployment/observability/observability-prometheus-server",
+      "service": "none",
+      "discovery": {
+        "role": "static",
+        "namespaces": [],
+        "fieldSelectors": [
+          "none: the target is a single static loopback address"
+        ],
+        "address": "127.0.0.1:9090",
+        "selectors": [
+          "exact static loopback address 127.0.0.1:9090"
+        ],
+        "relabelSequence": [
+          "no discovery relabeling; the single static target is the complete allowlist"
+        ]
+      },
+      "scheme": "http",
+      "port": 9090,
+      "path": "/metrics",
+      "interval": "30s",
+      "timeout": "10s",
+      "authentication": "none",
+      "tokenFile": "",
+      "tlsVerification": "not applicable to loopback HTTP",
+      "targetLabels": [
+        "job",
+        "instance"
+      ],
+      "rbac": [],
+      "networkPolicy": [
+        "none: loopback traffic does not leave the Prometheus Pod"
+      ],
+      "metricPolicy": "No metric-name filtering in the initial single-process baseline; do not promote discovery or user-controlled labels.",
+      "lifecycle": "The target exists only inside the Prometheus container network namespace and follows the Prometheus Deployment lifecycle."
+    },
+    {
+      "id": "kube-state-metrics",
+      "status": "accepted",
+      "purpose": "Expose bounded Kubernetes object-state series for the exact eight enabled collectors.",
+      "ownerBatch": "H8.4C",
+      "deferredReason": "",
+      "namespace": "observability",
+      "ownerObject": "Deployment/observability/observability-kube-state-metrics",
+      "service": "Service/observability/observability-kube-state-metrics",
+      "discovery": {
+        "role": "endpointslice",
+        "namespaces": [
+          "observability"
+        ],
+        "fieldSelectors": [
+          "none: EndpointSlice discovery is fixed to namespace observability and the complete relabel keep-list provides the fail-closed Service boundary"
+        ],
+        "address": "ready EndpointSlice address selected only from the named Service port http",
+        "selectors": [
+          "__meta_kubernetes_namespace=observability",
+          "__meta_kubernetes_service_name=observability-kube-state-metrics",
+          "__meta_kubernetes_service_label_app_kubernetes_io_name=kube-state-metrics",
+          "__meta_kubernetes_service_label_app_kubernetes_io_instance=observability",
+          "__meta_kubernetes_service_label_app_kubernetes_io_component=metrics",
+          "__meta_kubernetes_endpointslice_port_name=http",
+          "__meta_kubernetes_endpointslice_endpoint_conditions_ready=true"
+        ],
+        "relabelSequence": [
+          "keep namespace matching ^observability$",
+          "keep Service name matching ^observability-kube-state-metrics$",
+          "keep Service label tuple matching ^kube-state-metrics;observability;metrics$",
+          "keep EndpointSlice port name matching ^http$",
+          "keep endpoint readiness matching ^true$",
+          "replace namespace from __meta_kubernetes_namespace",
+          "replace service from __meta_kubernetes_service_name",
+          "replace pod from __meta_kubernetes_pod_name when present",
+          "allow Prometheus to discard every remaining __meta_kubernetes_* label"
+        ]
+      },
+      "scheme": "http",
+      "port": 8080,
+      "path": "/metrics",
+      "interval": "30s",
+      "timeout": "10s",
+      "authentication": "none",
+      "tokenFile": "",
+      "tlsVerification": "not applicable to in-cluster HTTP",
+      "targetLabels": [
+        "job",
+        "instance",
+        "namespace",
+        "service",
+        "pod"
+      ],
+      "rbac": [
+        "core/services get,list,watch",
+        "core/pods get,list,watch",
+        "discovery.k8s.io/endpointslices get,list,watch"
+      ],
+      "networkPolicy": [
+        "existing kube-state-metrics-metrics-ingress: source namespace observability and exact Prometheus Pod selector to exact kube-state-metrics Pod selector on TCP 8080",
+        "new prometheus-kube-state-metrics-egress: exact Prometheus Pod selector to exact kube-state-metrics Pod selector on TCP 8080"
+      ],
+      "metricPolicy": "The existing exact collectors daemonsets,deployments,namespaces,nodes,persistentvolumeclaims,pods,replicasets,statefulsets are the cardinality boundary; no telemetry/self-metrics port is scraped.",
+      "lifecycle": "EndpointSlice changes are rediscovered automatically, but a Service name, required label, port-name, or namespace change fails closed and requires repository review."
+    },
+    {
+      "id": "platform-operator",
+      "status": "accepted",
+      "purpose": "Observe controller-runtime and bounded ManagedService reconciliation metrics through the existing authenticated endpoint.",
+      "ownerBatch": "H8.4C",
+      "deferredReason": "",
+      "namespace": "platform-system",
+      "ownerObject": "Deployment/platform-system/platform-operator-controller-manager",
+      "service": "Service/platform-system/platform-operator-controller-manager-metrics-service",
+      "discovery": {
+        "role": "endpointslice",
+        "namespaces": [
+          "platform-system"
+        ],
+        "fieldSelectors": [
+          "none: EndpointSlice discovery is fixed to namespace platform-system and the complete relabel keep-list provides the fail-closed Service boundary"
+        ],
+        "address": "ready EndpointSlice address selected only from the named Service port https",
+        "selectors": [
+          "__meta_kubernetes_namespace=platform-system",
+          "__meta_kubernetes_service_name=platform-operator-controller-manager-metrics-service",
+          "__meta_kubernetes_service_label_app_kubernetes_io_name=cloud-native-service-control-plane",
+          "__meta_kubernetes_service_label_control_plane=controller-manager",
+          "__meta_kubernetes_pod_label_app_kubernetes_io_name=cloud-native-service-control-plane",
+          "__meta_kubernetes_pod_label_control_plane=controller-manager",
+          "__meta_kubernetes_endpointslice_port_name=https",
+          "__meta_kubernetes_endpointslice_endpoint_conditions_ready=true"
+        ],
+        "relabelSequence": [
+          "keep namespace matching ^platform-system$",
+          "keep Service name matching ^platform-operator-controller-manager-metrics-service$",
+          "keep Service label tuple matching ^cloud-native-service-control-plane;controller-manager$",
+          "keep Pod label tuple matching ^cloud-native-service-control-plane;controller-manager$",
+          "keep EndpointSlice port name matching ^https$",
+          "keep endpoint readiness matching ^true$",
+          "replace namespace from __meta_kubernetes_namespace",
+          "replace service from __meta_kubernetes_service_name",
+          "replace pod from __meta_kubernetes_pod_name",
+          "allow Prometheus to discard every remaining __meta_kubernetes_* label"
+        ]
+      },
+      "scheme": "https",
+      "port": 8443,
+      "path": "/metrics",
+      "interval": "30s",
+      "timeout": "10s",
+      "authentication": "bearer token from the Prometheus ServiceAccount projected mount",
+      "tokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+      "tlsVerification": "insecure_skip_verify=true is accepted only for the current self-signed single-node endpoint; encryption and client authentication remain active, but server identity is not verified",
+      "targetLabels": [
+        "job",
+        "instance",
+        "namespace",
+        "service",
+        "pod"
+      ],
+      "rbac": [
+        "core/services get,list,watch",
+        "core/pods get,list,watch",
+        "discovery.k8s.io/endpointslices get,list,watch",
+        "nonResourceURLs:/metrics get through ClusterRole/platform-operator-metrics-reader and ClusterRoleBinding/observability-prometheus-operator-metrics-reader"
+      ],
+      "networkPolicy": [
+        "new prometheus-platform-operator-metrics-egress in observability: exact Prometheus Pod selector to platform-system and exact operator Pod selector on TCP 8443",
+        "new platform-operator-prometheus-metrics-ingress in platform-system: source namespace observability and exact Prometheus Pod selector to exact operator Pod selector on TCP 8443"
+      ],
+      "metricPolicy": "Retain controller-runtime and bounded ManagedService outcome metrics without copying Kubernetes labels; ManagedService names and reconcile object identities are prohibited target or metric labels.",
+      "lifecycle": "EndpointSlice and projected-token rotation are automatic. Certificate, Service identity, namespace, labels, or port changes require review; replace insecure verification when a reviewed CA bundle exists."
+    },
+    {
+      "id": "opentelemetry-collector",
+      "status": "accepted",
+      "purpose": "Observe Collector receiver, processor, exporter, refusal, and drop health before durable backends are enabled.",
+      "ownerBatch": "H8.4C",
+      "deferredReason": "",
+      "namespace": "observability",
+      "ownerObject": "DaemonSet/observability/opentelemetry-collector-agent",
+      "service": "Service/observability/opentelemetry-collector",
+      "discovery": {
+        "role": "endpointslice",
+        "namespaces": [
+          "observability"
+        ],
+        "fieldSelectors": [
+          "none: EndpointSlice discovery is fixed to namespace observability and the complete relabel keep-list provides the fail-closed Service boundary"
+        ],
+        "address": "ready EndpointSlice address selected only from the H8.4C-added named Service port metrics",
+        "selectors": [
+          "__meta_kubernetes_namespace=observability",
+          "__meta_kubernetes_service_name=opentelemetry-collector",
+          "__meta_kubernetes_service_label_app_kubernetes_io_name=opentelemetry-collector",
+          "__meta_kubernetes_service_label_app_kubernetes_io_part_of=cloud-native-service-control-plane",
+          "__meta_kubernetes_pod_label_app_kubernetes_io_name=opentelemetry-collector",
+          "__meta_kubernetes_pod_label_app_kubernetes_io_instance=observability",
+          "__meta_kubernetes_pod_label_component=agent-collector",
+          "__meta_kubernetes_endpointslice_port_name=metrics",
+          "__meta_kubernetes_endpointslice_endpoint_conditions_ready=true"
+        ],
+        "relabelSequence": [
+          "keep namespace matching ^observability$",
+          "keep Service name matching ^opentelemetry-collector$",
+          "keep Service label tuple matching ^opentelemetry-collector;cloud-native-service-control-plane$",
+          "keep Pod label tuple matching ^opentelemetry-collector;observability;agent-collector$",
+          "keep EndpointSlice port name matching ^metrics$",
+          "keep endpoint readiness matching ^true$",
+          "replace namespace from __meta_kubernetes_namespace",
+          "replace service from __meta_kubernetes_service_name",
+          "replace pod from __meta_kubernetes_pod_name",
+          "allow Prometheus to discard every remaining __meta_kubernetes_* label"
+        ]
+      },
+      "scheme": "http",
+      "port": 8888,
+      "path": "/metrics",
+      "interval": "30s",
+      "timeout": "10s",
+      "authentication": "none",
+      "tokenFile": "",
+      "tlsVerification": "not applicable to policy-restricted in-cluster HTTP",
+      "targetLabels": [
+        "job",
+        "instance",
+        "namespace",
+        "service",
+        "pod"
+      ],
+      "rbac": [
+        "core/services get,list,watch",
+        "core/pods get,list,watch",
+        "discovery.k8s.io/endpointslices get,list,watch"
+      ],
+      "networkPolicy": [
+        "new opentelemetry-collector-metrics-ingress: exact Prometheus Pod selector to exact Collector Pod selector on TCP 8888",
+        "new prometheus-opentelemetry-collector-egress: exact Prometheus Pod selector to exact Collector Pod selector on TCP 8888"
+      ],
+      "metricPolicy": "No initial metric-name filtering; retain only stable target labels and do not promote resource attributes into Prometheus labels.",
+      "lifecycle": "H8.4C enables the Collector telemetry endpoint on ${env:MY_POD_IP}:8888 and adds only the named metrics port to the existing internal Service; OTLP ports and pipelines remain unchanged."
+    },
+    {
+      "id": "control-plane-api",
+      "status": "accepted",
+      "purpose": "Observe bounded HTTP request metrics from the authenticated control-plane API on its separate internal listener.",
+      "ownerBatch": "H8.4C",
+      "deferredReason": "",
+      "namespace": "platform-system",
+      "ownerObject": "Deployment/platform-system/control-plane-api",
+      "service": "Service/platform-system/control-plane-api",
+      "discovery": {
+        "role": "endpointslice",
+        "namespaces": [
+          "platform-system"
+        ],
+        "fieldSelectors": [
+          "none: EndpointSlice discovery is fixed to namespace platform-system and the complete relabel keep-list provides the fail-closed Service boundary"
+        ],
+        "address": "ready EndpointSlice address selected only from the H8.4C-added named Service port metrics",
+        "selectors": [
+          "__meta_kubernetes_namespace=platform-system",
+          "__meta_kubernetes_service_name=control-plane-api",
+          "__meta_kubernetes_service_label_app_kubernetes_io_name=control-plane-api",
+          "__meta_kubernetes_service_label_app_kubernetes_io_part_of=cloud-native-service-control-plane",
+          "__meta_kubernetes_pod_label_app_kubernetes_io_name=control-plane-api",
+          "__meta_kubernetes_pod_label_app_kubernetes_io_component=api",
+          "__meta_kubernetes_endpointslice_port_name=metrics",
+          "__meta_kubernetes_endpointslice_endpoint_conditions_ready=true"
+        ],
+        "relabelSequence": [
+          "keep namespace matching ^platform-system$",
+          "keep Service name matching ^control-plane-api$",
+          "keep Service label tuple matching ^control-plane-api;cloud-native-service-control-plane$",
+          "keep Pod label tuple matching ^control-plane-api;api$",
+          "keep EndpointSlice port name matching ^metrics$",
+          "keep endpoint readiness matching ^true$",
+          "replace namespace from __meta_kubernetes_namespace",
+          "replace service from __meta_kubernetes_service_name",
+          "replace pod from __meta_kubernetes_pod_name",
+          "allow Prometheus to discard every remaining __meta_kubernetes_* label"
+        ]
+      },
+      "scheme": "http",
+      "port": 9090,
+      "path": "/metrics",
+      "interval": "30s",
+      "timeout": "10s",
+      "authentication": "none",
+      "tokenFile": "",
+      "tlsVerification": "not applicable to policy-restricted in-cluster HTTP",
+      "targetLabels": [
+        "job",
+        "instance",
+        "namespace",
+        "service",
+        "pod"
+      ],
+      "rbac": [
+        "core/services get,list,watch",
+        "core/pods get,list,watch",
+        "discovery.k8s.io/endpointslices get,list,watch"
+      ],
+      "networkPolicy": [
+        "new control-plane-api-prometheus-metrics-ingress in platform-system: source namespace observability and exact Prometheus Pod selector to exact API Pod selector on TCP 9090",
+        "new prometheus-control-plane-api-metrics-egress in observability: exact Prometheus Pod selector to platform-system and exact API Pod selector on TCP 9090"
+      ],
+      "metricPolicy": "No metric-name filtering; application metrics already use bounded method, normalized route, and status-class labels. Request IDs, URLs, bearer identities, and bodies remain prohibited.",
+      "lifecycle": "H8.4C adds only the named metrics port to the existing ClusterIP Service. The public port-80 Service route and Ingress never select or expose /metrics."
+    },
+    {
+      "id": "managed-demo",
+      "status": "accepted",
+      "purpose": "Observe bounded HTTP metrics only from operator-owned demo-http workloads in the fixed applications namespace.",
+      "ownerBatch": "H8.4C",
+      "deferredReason": "",
+      "namespace": "applications",
+      "ownerObject": "operator-owned Deployment/applications/<ManagedService name>",
+      "service": "operator-owned Service/applications/<ManagedService name>",
+      "discovery": {
+        "role": "endpointslice",
+        "namespaces": [
+          "applications"
+        ],
+        "fieldSelectors": [
+          "none: EndpointSlice discovery is fixed to namespace applications and the complete controller-owned label relabel keep-list provides the fail-closed workload boundary"
+        ],
+        "address": "ready EndpointSlice address selected only from operator-owned Services and the H8.4C-added named port metrics",
+        "selectors": [
+          "__meta_kubernetes_namespace=applications",
+          "__meta_kubernetes_service_label_app_kubernetes_io_name=managed-service",
+          "__meta_kubernetes_service_label_app_kubernetes_io_managed_by=platform-operator",
+          "__meta_kubernetes_service_label_platform_eoghanclancy_eu_template=demo-http",
+          "__meta_kubernetes_pod_label_app_kubernetes_io_name=managed-service",
+          "__meta_kubernetes_pod_label_app_kubernetes_io_managed_by=platform-operator",
+          "__meta_kubernetes_pod_label_platform_eoghanclancy_eu_template=demo-http",
+          "__meta_kubernetes_endpointslice_port_name=metrics",
+          "__meta_kubernetes_endpointslice_endpoint_conditions_ready=true"
+        ],
+        "relabelSequence": [
+          "keep namespace matching ^applications$",
+          "keep Service label tuple matching ^managed-service;platform-operator;demo-http$",
+          "keep Pod label tuple matching ^managed-service;platform-operator;demo-http$",
+          "keep EndpointSlice port name matching ^metrics$",
+          "keep endpoint readiness matching ^true$",
+          "replace namespace from __meta_kubernetes_namespace",
+          "replace service from __meta_kubernetes_service_name",
+          "replace pod from __meta_kubernetes_pod_name",
+          "allow Prometheus to discard every remaining __meta_kubernetes_* label"
+        ]
+      },
+      "scheme": "http",
+      "port": 9090,
+      "path": "/metrics",
+      "interval": "30s",
+      "timeout": "10s",
+      "authentication": "none",
+      "tokenFile": "",
+      "tlsVerification": "not applicable to policy-restricted in-cluster HTTP",
+      "targetLabels": [
+        "job",
+        "instance",
+        "namespace",
+        "service",
+        "pod"
+      ],
+      "rbac": [
+        "core/services get,list,watch",
+        "core/pods get,list,watch",
+        "discovery.k8s.io/endpointslices get,list,watch"
+      ],
+      "networkPolicy": [
+        "new managed-demo-prometheus-metrics-ingress in applications: source namespace observability and exact Prometheus Pod selector to the exact managed-service, platform-operator, demo-http Pod-label conjunction on TCP 9090",
+        "new prometheus-managed-demo-metrics-egress in observability: exact Prometheus Pod selector to applications and the exact managed-service, platform-operator, demo-http Pod-label conjunction on TCP 9090"
+      ],
+      "metricPolicy": "No metric-name filtering; application metrics already use bounded method, normalized route, and status-class labels. ManagedService names and messages are not metric labels.",
+      "lifecycle": "H8.4C updates reconciliation to add the metrics Service port idempotently. Only controller-owned label conjunction plus the exact namespace and port opts a workload in; annotations and user labels cannot opt in."
+    },
+    {
+      "id": "kubelet",
+      "status": "deferred",
+      "purpose": "Provide node and kubelet process metrics after authentication, policy routing, and cardinality are proven.",
+      "ownerBatch": "H8.4C-K kubelet/cAdvisor prerequisite and allowlist follow-up",
+      "deferredReason": "Read-only metadata proves node InternalIP 142.132.178.45 and kubelet port 10250, but it cannot prove bearer authorization, TLS endpoint behavior, kube-router's effective 10250 policy destination, or an accepted metric-name and label allowlist without controlled traffic.",
+      "namespace": "cluster node portfolio-k3s-01",
+      "ownerObject": "Node/portfolio-k3s-01",
+      "service": "none",
+      "discovery": {
+        "role": "node",
+        "namespaces": [],
+        "fieldSelectors": [
+          "proposed exact metadata.name=portfolio-k3s-01; not approved until the follow-up proves the discovery and traffic boundary"
+        ],
+        "address": "proposed exact reviewed Node InternalIP 142.132.178.45:10250; not approved for H8.4C",
+        "selectors": [
+          "proposed exact Node name portfolio-k3s-01",
+          "proposed exact IPv4 InternalIP 142.132.178.45"
+        ],
+        "relabelSequence": [
+          "deferred; future configuration must keep only ^portfolio-k3s-01$ and rewrite __address__ to the separately proven exact 10250 destination"
+        ]
+      },
+      "scheme": "https",
+      "port": 10250,
+      "path": "/metrics",
+      "interval": "60s",
+      "timeout": "15s",
+      "authentication": "proposed bearer token from the Prometheus ServiceAccount projected mount; authorization not yet proven",
+      "tokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+      "tlsVerification": "proposed insecure_skip_verify=true only for the current single-node baseline; not approved until the endpoint proof",
+      "targetLabels": [
+        "job",
+        "instance",
+        "node"
+      ],
+      "rbac": [
+        "deferred proposed core/nodes get,list,watch",
+        "deferred proposed core/nodes/metrics get"
+      ],
+      "networkPolicy": [
+        "none in H8.4C; a future rule may use only the separately proven exact /32 and TCP 10250"
+      ],
+      "metricPolicy": "Deferred until a use-case-derived metric-name allowlist and stable label allowlist are reviewed.",
+      "lifecycle": "The future job must be re-reviewed after node replacement, readdressing, K3s or kube-router changes, kubelet certificate/authentication changes, or a multi-node transition."
+    },
+    {
+      "id": "cadvisor",
+      "status": "deferred",
+      "purpose": "Provide bounded container resource metrics after the shared kubelet boundary and a cAdvisor-specific metric allowlist are proven.",
+      "ownerBatch": "H8.4C-K kubelet/cAdvisor prerequisite and allowlist follow-up",
+      "deferredReason": "It shares the unproven kubelet authentication, TLS, and NetworkPolicy boundary, and no accepted cAdvisor metric-name and label allowlist exists.",
+      "namespace": "cluster node portfolio-k3s-01",
+      "ownerObject": "Node/portfolio-k3s-01 kubelet",
+      "service": "none",
+      "discovery": {
+        "role": "node",
+        "namespaces": [],
+        "fieldSelectors": [
+          "proposed exact metadata.name=portfolio-k3s-01; not approved until the follow-up proves the discovery and traffic boundary"
+        ],
+        "address": "proposed exact reviewed Node InternalIP 142.132.178.45:10250; not approved for H8.4C",
+        "selectors": [
+          "proposed exact Node name portfolio-k3s-01",
+          "proposed exact IPv4 InternalIP 142.132.178.45"
+        ],
+        "relabelSequence": [
+          "deferred; future configuration must keep only ^portfolio-k3s-01$ and rewrite __address__ to the separately proven exact 10250 destination"
+        ]
+      },
+      "scheme": "https",
+      "port": 10250,
+      "path": "/metrics/cadvisor",
+      "interval": "60s",
+      "timeout": "15s",
+      "authentication": "proposed bearer token from the Prometheus ServiceAccount projected mount; authorization not yet proven",
+      "tokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token",
+      "tlsVerification": "proposed insecure_skip_verify=true only for the current single-node baseline; not approved until the endpoint proof",
+      "targetLabels": [
+        "job",
+        "instance",
+        "node"
+      ],
+      "rbac": [
+        "deferred proposed core/nodes get,list,watch",
+        "deferred proposed core/nodes/metrics get"
+      ],
+      "networkPolicy": [
+        "none in H8.4C; a future rule may use only the separately proven exact /32 and TCP 10250"
+      ],
+      "metricPolicy": "Deferred until a use-case-derived metric-name allowlist excludes volatile container IDs, image IDs, pod UIDs, and unneeded high-cardinality cgroup series.",
+      "lifecycle": "The future job must be re-reviewed after node replacement, readdressing, K3s or kube-router changes, kubelet certificate/authentication changes, or a multi-node transition."
+    }
+  ],
+  "sharedDiscoveryRBACDecision": {
+    "h8.4cRequiredRules": [
+      "core/services get,list,watch",
+      "core/pods get,list,watch",
+      "discovery.k8s.io/endpointslices get,list,watch"
+    ],
+    "operatorAuthorizationRule": "nonResourceURLs:/metrics get through the existing platform-operator-metrics-reader binding",
+    "removeUntilKubeletFollowUp": [
+      "core/namespaces get,list,watch",
+      "core/nodes get,list,watch",
+      "core/nodes/metrics get",
+      "core/nodes/proxy get"
+    ],
+    "rationale": "Every accepted non-static job uses fixed-namespace EndpointSlice discovery. Node discovery and node subresources have no accepted H8.4C consumer while kubelet and cAdvisor are deferred."
+  },
+  "fixedNetworkBoundaries": {
+    "kubernetesAPIEgress": "142.132.178.45/32 TCP 6443",
+    "forbiddenDestinations": [
+      "10.43.0.1/32 TCP 443 as the effective API allowance",
+      "10.43.0.0/16",
+      "10.42.0.0/16",
+      "complete node CIDR",
+      "0.0.0.0/0",
+      "unrestricted same-namespace egress",
+      "internet egress",
+      "port ranges"
+    ]
+  }
+}

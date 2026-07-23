@@ -266,6 +266,77 @@ internal port, such as 9090, but only a metrics ClusterIP Service and
 NetworkPolicy expose it. The API's public port-80 Service and Ingress must not
 route `/metrics`.
 
+#### H8.4C0 authoritative target-matrix closure
+
+The implementation-ready H8.4C target contract is recorded in the
+machine-validated
+[`h8-prometheus-target-matrix.json`](h8-prometheus-target-matrix.json).
+That file is part of this design and is the authoritative source for job IDs,
+selectors, relabeling, endpoint ownership, timing, authentication, TLS,
+target labels, RBAC, NetworkPolicy, cardinality, and lifecycle decisions.
+
+The closed initial inventory contains six accepted jobs:
+
+| Job | Endpoint | Interval / timeout | Boundary |
+| --- | --- | --- | --- |
+| `prometheus-self` | `http://127.0.0.1:9090/metrics` | 30s / 10s | static loopback; no policy or RBAC |
+| `kube-state-metrics` | exact `observability-kube-state-metrics` EndpointSlice port `http`, TCP 8080 | 30s / 10s | exact namespace, Service labels, ready endpoint, ingress and egress Pod selectors |
+| `platform-operator` | exact operator metrics EndpointSlice port `https`, TCP 8443, `/metrics` | 30s / 10s | projected ServiceAccount token, existing `/metrics` authorization, exact policies; `insecure_skip_verify=true` is explicitly limited to the current self-signed single-node endpoint |
+| `opentelemetry-collector` | exact Collector EndpointSlice port `metrics`, TCP 8888 | 30s / 10s | H8.4C enables `${env:MY_POD_IP}:8888`, extends only the existing internal Service, and permits only the exact Prometheus identity |
+| `control-plane-api` | exact API EndpointSlice port `metrics`, TCP 9090 | 30s / 10s | H8.4C extends only the internal ClusterIP Service; public port 80 and Ingress never expose `/metrics` |
+| `managed-demo` | operator-owned `demo-http` EndpointSlices on named port `metrics`, TCP 9090 | 30s / 10s | fixed `applications` namespace plus the exact controller-owned `managed-service`, `platform-operator`, and `demo-http` Service and Pod label conjunction |
+
+All EndpointSlice jobs start from fixed namespace lists and default to dropping
+targets. A target survives only after its namespace, Service identity,
+required Service and Pod labels, named endpoint port, and ready condition all
+match anchored allowlists. No annotation-based discovery, `labelmap`, arbitrary
+Kubernetes label copying, external target, or namespace-wide target admission
+is allowed. Prometheus retains only `job`, `instance`, and the documented
+stable `namespace`, `service`, and `pod` labels where applicable; discovery
+metadata is discarded.
+
+The global scrape and evaluation intervals are both 30 seconds. Every accepted
+component or application job uses a 30-second interval and 10-second timeout.
+No speculative metric-name filtering is applied to these small targets.
+kube-state-metrics remains bounded by its exact eight-collector allowlist.
+Request IDs, trace IDs, ManagedService names and messages, URLs, bearer
+identities, Pod UIDs, container IDs, image IDs, EndpointSlice identities, and
+arbitrary workload labels remain prohibited metric or target labels.
+
+`kubelet` and `cadvisor` are closed as **deferred**, not silently omitted.
+Read-only discovery reconfirmed the single Node InternalIP
+`142.132.178.45` and advertised kubelet port 10250, but metadata cannot prove
+the ServiceAccount's kubelet authorization, the TLS endpoint behavior, or
+kube-router's effective NetworkPolicy destination for direct 10250 traffic.
+The design also lacks the required use-case-derived metric-name and stable-label
+allowlists. The exact owner is the bounded **H8.4C-K kubelet/cAdvisor
+prerequisite and allowlist follow-up**, which must complete a separately
+authorized connectivity/policy proof and approve both allowlists before either
+60-second/15-second job can be enabled. It may use only an exact proven `/32`
+on TCP 10250; the complete node CIDR and Kubernetes Service proxy are
+forbidden.
+
+Because the two node jobs are deferred, H8.4C must reduce the H8.4B discovery
+role to the rules actually consumed by fixed-namespace EndpointSlice discovery:
+`services` and `pods` plus `discovery.k8s.io/endpointslices`, all with only
+`get`, `list`, and `watch`. The existing operator `/metrics` non-resource
+binding remains. Namespace, Node, `nodes/metrics`, and `nodes/proxy`
+permissions have no accepted H8.4C consumer and must be removed until the
+H8.4C-K prerequisite proves they are needed.
+
+Every target-specific policy uses the exact Prometheus Pod selector, an exact
+target Pod selector and namespace selector where cross-namespace, TCP, and one
+port. The existing post-DNAT Kubernetes API rule remains exactly
+`142.132.178.45/32` TCP 6443. The Service IP rule, complete Service/Pod/node
+CIDRs, unrestricted same-namespace traffic, `0.0.0.0/0`, Internet egress, and
+port ranges remain prohibited.
+
+This closure changes no rendered object. H8.4C owns implementation of the six
+accepted jobs, their exact exposure and policy rules, and the RBAC reduction.
+H8.4D GitOps registration and H8.4E live synchronization and scrape validation
+remain separate later gates. Prometheus is not deployed and H8.4 remains
+incomplete.
+
 ### 5.2 Logs
 
 The Collector Kubernetes-distribution DaemonSet uses the `filelog` receiver
