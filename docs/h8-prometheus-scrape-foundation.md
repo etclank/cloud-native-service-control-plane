@@ -114,9 +114,10 @@ no token file was created or accessed.
 H8.4C-K subsequently proved the exact `nodes/metrics get` authorization
 contract and recorded bounded kubelet and cAdvisor family candidates, but
 could not close the exact serving-certificate or Pod-to-node NetworkPolicy
-proof. Both jobs and TCP 10250 remain deferred to the controlled H8.4C-KR
-follow-up documented in
-[`h8-kubelet-cadvisor-proof-follow-up.md`](h8-kubelet-cadvisor-proof-follow-up.md).
+proof. H8.4C-KR then found that the configured SSH key was not loaded in the
+agent and correctly made no authentication retry. Both jobs and TCP 10250
+remain deferred to H8.4C-KR2, as recorded in
+[`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).
 GitOps registration remains blocked rather than proceeding to H8.4D. No live
 deployment or scrape occurred. Prometheus remains disabled by default, and
 H8.4 remains incomplete.

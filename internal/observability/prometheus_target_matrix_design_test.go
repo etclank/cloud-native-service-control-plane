@@ -51,8 +51,20 @@ const (
 )
 
 type prometheusTargetMatrix struct {
-	Version string `json:"version"`
-	Global  struct {
+	Version        string `json:"version"`
+	H84CKRDecision struct {
+		AuthenticationAuthorization string `json:"authenticationAuthorization"`
+		MetricAllowlists            string `json:"metricAllowlists"`
+		KubeletServingCertificate   string `json:"kubeletServingCertificate"`
+		NetworkPolicyEnforcement    string `json:"networkPolicyEnforcement"`
+		KubeletStatus               string `json:"kubeletStatus"`
+		CadvisorStatus              string `json:"cadvisorStatus"`
+		ImplementationStatus        string `json:"implementationStatus"`
+		H84DStatus                  string `json:"h84DStatus"`
+		EvidenceReference           string `json:"evidenceReference"`
+		NextOwner                   string `json:"nextOwner"`
+	} `json:"h84CKRDecision"`
+	Global struct {
 		ScrapeInterval          string            `json:"scrapeInterval"`
 		EvaluationInterval      string            `json:"evaluationInterval"`
 		ServiceAccountTokenFile string            `json:"serviceAccountTokenFile"`
@@ -133,7 +145,7 @@ type prometheusMetricAllowlist struct {
 func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 	matrix, _ := readPrometheusTargetMatrix(t)
 
-	if matrix.Version != "h8.4c-k-proof" {
+	if matrix.Version != "h8.4c-kr-proof" {
 		t.Errorf("target matrix version = %q", matrix.Version)
 	}
 	if matrix.Global.ScrapeInterval != defaultScrapeInterval ||
@@ -180,6 +192,65 @@ func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 	}
 }
 
+func TestH84CKRRecordsExactSSHBlockerWithoutAcceptingNodeJobs(t *testing.T) {
+	matrix, raw := readPrometheusTargetMatrix(t)
+	decision := matrix.H84CKRDecision
+
+	if decision.AuthenticationAuthorization !=
+		"proven and accepted as a future design input" ||
+		decision.MetricAllowlists !=
+			"proven and accepted as bounded future design inputs" ||
+		decision.KubeletServingCertificate != "still unproven" ||
+		decision.NetworkPolicyEnforcement != "still unproven" ||
+		decision.KubeletStatus != deferredTargetStatus ||
+		decision.CadvisorStatus != deferredTargetStatus ||
+		decision.ImplementationStatus != "not implemented" ||
+		decision.H84DStatus != "blocked" {
+		t.Errorf("H8.4C-KR decision = %#v", decision)
+	}
+	if !strings.Contains(decision.NextOwner, "H8.4C-KR2") ||
+		!strings.Contains(decision.NextOwner, "matching configured key") {
+		t.Errorf("H8.4C-KR next owner = %q", decision.NextOwner)
+	}
+	evidencePath := filepath.Join("..", "..", decision.EvidenceReference)
+	if _, err := os.Stat(evidencePath); err != nil {
+		t.Errorf("H8.4C-KR evidence reference %q: %v", evidencePath, err)
+	}
+
+	for _, jobID := range []string{kubeletTarget, cadvisorTarget} {
+		job := findPrometheusTarget(t, matrix.Jobs, jobID)
+		if job.Status != deferredTargetStatus ||
+			!strings.Contains(job.OwnerBatch, "H8.4C-KR2") ||
+			!strings.Contains(
+				strings.ToLower(job.DeferredReason),
+				"implementation remains forbidden",
+			) {
+			t.Errorf("job %q H8.4C-KR decision = %#v", jobID, job)
+		}
+		if strings.Contains(job.TLSVerification, "accepted") ||
+			strings.Contains(job.TLSVerification, "insecure_skip_verify: true") {
+			t.Errorf("job %q prematurely accepts TLS: %q", jobID, job.TLSVerification)
+		}
+		if job.ProofEvidence == nil ||
+			!strings.Contains(job.ProofEvidence.TLS, "no SSH retry") ||
+			!strings.Contains(job.ProofEvidence.NetworkPolicy, "did not run") {
+			t.Errorf("job %q H8.4C-KR proof = %#v", jobID, job.ProofEvidence)
+		}
+	}
+
+	for _, forbiddenField := range []string{
+		`"certificateSubject"`,
+		`"certificateIssuer"`,
+		`"certificateSANs"`,
+		`"certificateFingerprint"`,
+		`"trustAnchorPath"`,
+	} {
+		if strings.Contains(string(raw), forbiddenField) {
+			t.Errorf("matrix contains unobserved certificate field %s", forbiddenField)
+		}
+	}
+}
+
 func TestH84CKNodeTargetsRemainEvidenceBackedAndDeferred(t *testing.T) {
 	matrix, _ := readPrometheusTargetMatrix(t)
 
@@ -200,7 +271,10 @@ func TestH84CKNodeTargetsRemainEvidenceBackedAndDeferred(t *testing.T) {
 		job := findPrometheusTarget(t, matrix.Jobs, jobID)
 		if job.Status != deferredTargetStatus ||
 			!strings.Contains(job.OwnerBatch, "H8.4C-KR") ||
-			!strings.Contains(job.DeferredReason, "Implementation remains forbidden") {
+			!strings.Contains(
+				strings.ToLower(job.DeferredReason),
+				"implementation remains forbidden",
+			) {
 			t.Errorf("job %q deferral = %#v", jobID, job)
 		}
 		if job.ProofEvidence == nil ||

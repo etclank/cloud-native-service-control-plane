@@ -671,9 +671,10 @@ recorded in
 H8.4C-K proved the `nodes/metrics get` authorization contract and derived
 bounded kubelet and cAdvisor family candidates. Exact kubelet serving
 certificate evidence and kube-router Pod-to-node TCP 10250 enforcement remain
-unproven, so both jobs remain deferred. The evidence and explicit H8.4C-KR
-follow-up boundary are recorded in
-[`h8-kubelet-cadvisor-proof-follow-up.md`](h8-kubelet-cadvisor-proof-follow-up.md).
+unproven, so both jobs remain deferred. H8.4C-KR identified a precise SSH
+agent/configured-key mismatch and made no prohibited retry. The evidence and
+explicit H8.4C-KR2 follow-up boundary are recorded in
+[`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).
 H8.4D restricted GitOps registration remains blocked; H8.4E still owns live
 validation, and H8.4 remains incomplete.
 

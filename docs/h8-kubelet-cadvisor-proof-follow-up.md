@@ -155,11 +155,16 @@ is unresolved:
 4. a safe network-interface value boundary before cAdvisor network families
    can be accepted.
 
-The explicit future owner is **H8.4C-KR controlled kubelet certificate and
-NetworkPolicy proof follow-up**. It requires restored read-only SSH access or
-a separately authorized controlled diagnostic method. H8.4D remains blocked
-until that follow-up either accepts both jobs or the authoritative roadmap
-explicitly removes them from the mandatory H8.4 inventory.
+H8.4C-KR subsequently confirmed that the intended alias and configured key
+were unambiguous, but the SSH agent held only a different public-key
+fingerprint. Its controlled retry was therefore prohibited. The exact result
+and remaining boundary are recorded in
+[`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).
+The explicit future owner is **H8.4C-KR2 SSH-authenticated certificate and
+policy inspection follow-up**, after the user restores the matching configured
+key in the agent outside an agent-run batch. H8.4D remains blocked until that
+follow-up either accepts both jobs or the authoritative roadmap explicitly
+removes them from the mandatory H8.4 inventory.
 
 The observability default render remains seven objects with SHA-256
 `cb441f08f11f45e914bad39271fa7198e85a21382a598ea37ad4d1e5eebf2900`.
