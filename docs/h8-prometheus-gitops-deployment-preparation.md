@@ -121,6 +121,6 @@ that disappear from the desired render. That behavior is intentional: it
 prevents an implicit PVC deletion but requires a separately reviewed cleanup
 operation during rollback.
 
-Repository-side H8.4B, H8.4C, and H8.4D are complete after this preparation.
-H8 remains incomplete until H8.4E live deployment/validation and H8.4F
-closeout finish.
+Repository-side H8.4B, H8.4C, and H8.4D completed with this preparation.
+H8.4E live deployment/validation and H8.4F closeout completed on 2026-07-23;
+see [`h8-observability-closeout.md`](h8-observability-closeout.md).

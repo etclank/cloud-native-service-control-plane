@@ -44,5 +44,6 @@ reuse this scope decision as security evidence.
 
 The six-job H8.4B/C repository implementation is accepted. H8.4D restricted
 GitOps deployment preparation is executable without additional node proof.
-H8 remains incomplete until H8.4E live synchronization and validation and
-H8.4F evidence/documentation closeout finish.
+H8.4E live synchronization and validation and H8.4F closeout completed on
+2026-07-23. The authoritative result is recorded in
+[`h8-observability-closeout.md`](h8-observability-closeout.md); H8 is complete.

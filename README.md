@@ -127,10 +127,10 @@ SSH tunnel over restricted TCP 22
 private K3s Kubernetes API
 ```
 
-The operator, API, Argo CD, managed `demo-http` path, and bounded
-OpenTelemetry Collector foundation are implemented. Prometheus, Loki, Tempo,
-Grafana, workload OTLP export, SmartEnergy, and the synthetic probe remain
-later work.
+The operator, API, Argo CD, managed `demo-http` path, bounded OpenTelemetry
+Collector, Prometheus, and reduced kube-state-metrics are implemented. Loki,
+Tempo, Grafana, workload OTLP export, SmartEnergy, and the synthetic probe are
+optional later work.
 
 ## Infrastructure Baseline
 
@@ -188,19 +188,13 @@ The live `portfolio-demo` resource reports `Available=True`, `readyReplicas=1`, 
 
 ### Observability
 
-The first observability component is live: a private OpenTelemetry Collector
-deployed through restricted, manual-sync GitOps. NetworkPolicy admits only the
-reviewed OTLP client identities on TCP 4317 and 4318. Both authorized
-OTLP/HTTP paths were validated, unauthorized identities and TCP 13133 were
-blocked, and the Collector remains configured with only a `nop` exporter. No
-production workload currently exports telemetry.
-
-The repository-side Prometheus implementation is also complete and awaiting a
-separately authorized manual deployment. It contains a standalone,
-resource-bounded Prometheus, reduced kube-state-metrics, a 3Gi local-path PVC,
-72-hour/2GB retention, six exact private scrape jobs, least-privilege RBAC,
-and restricted NetworkPolicies. Kubelet and cAdvisor are optional post-H8
-enhancements rather than H8 completion requirements.
+The private OpenTelemetry Collector, standalone Prometheus, and reduced
+kube-state-metrics are live through restricted, manual-sync GitOps. The
+Collector admits only reviewed OTLP client identities and retains only the
+`nop` exporter. Prometheus uses a 3Gi local-path PVC, 72-hour/2GB retention,
+least-privilege discovery RBAC, restricted NetworkPolicies, and exactly six
+healthy private scrape jobs. Its PVC-backed recovery and target rediscovery
+were validated. No production workload currently exports OTLP.
 
 Future post-H8 observability enhancements may include:
 
@@ -209,8 +203,9 @@ Future post-H8 observability enhancements may include:
 - Grafana dashboards;
 - a synthetic Go network probe.
 
-H8 now requires only the controlled Prometheus live deployment/validation and
-evidence closeout. No additional backend is an H8 acceptance requirement.
+H8 is complete. The authoritative evidence is in
+[`docs/h8-observability-closeout.md`](docs/h8-observability-closeout.md).
+No additional backend is an H8 acceptance requirement.
 
 ### SmartEnergy
 
@@ -257,6 +252,7 @@ Directories for components that have not yet been implemented may be introduced 
 | [`docs/infrastructure-context.md`](docs/infrastructure-context.md) | Authoritative infrastructure requirements and phase model |
 | [`docs/h7-platform-deployment-closeout.md`](docs/h7-platform-deployment-closeout.md) | H7 implementation record, validation evidence, security boundary, and exit criteria |
 | [`docs/h8-collector-deployment-closeout.md`](docs/h8-collector-deployment-closeout.md) | H8.3D Collector deployment, health, NetworkPolicy, and Gate 3V-R evidence |
+| [`docs/h8-observability-closeout.md`](docs/h8-observability-closeout.md) | H8.4 live Prometheus, persistence, target-health, security, rollback, and completion evidence |
 | [`docs/h8-observability-design.md`](docs/h8-observability-design.md) | H8 architecture, resource budget, retention, security, and ordered implementation roadmap |
 | [`docs/argocd-sync-rollback-runbook.md`](docs/argocd-sync-rollback-runbook.md) | Manual Argo CD synchronization and rollback procedure |
 
@@ -315,7 +311,7 @@ See [`docs/operator-guide.md`](docs/operator-guide.md) for the complete procedur
 | H5 — GHCR and CI access | Complete | Private package, immutable build identity, read-only pull Secret, digest-pinned deployment |
 | H6 — Argo CD bootstrap | Complete | Private Argo CD, restricted projects, manual synchronization, tested rollback |
 | H7 — Platform deployment | Complete | Operator, authenticated API, managed workload, immutable images, GitOps, TLS |
-| H8 — Observability deployment | In progress | H8.3 Collector foundation validated; Prometheus and later slices remain |
+| H8 — Observability deployment | Complete | Restricted Collector and bounded six-job Prometheus deployment validated |
 | H9 — SmartEnergy deployment | Not started | API, dashboard, PostgreSQL, and Redis |
 | H10 — Network probe | Not started | Synthetic connectivity and telemetry workload |
 | H11 — Backup and recovery | Not started | Tested backup and restoration procedures |

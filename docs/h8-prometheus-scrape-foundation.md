@@ -6,6 +6,11 @@ targets accepted by the authoritative
 candidate remains disabled by default. This slice changes no Argo CD resource,
 does not deploy Prometheus, and does not complete H8.4.
 
+> Subsequent status: H8.4E/F completed on 2026-07-23. See
+> [`h8-observability-closeout.md`](h8-observability-closeout.md) for the live
+> result; the statements below preserve this repository slice's original
+> boundary.
+
 ## Scrape inventory
 
 The global scrape and evaluation intervals are 30 seconds. Every job uses a

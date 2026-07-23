@@ -1,7 +1,7 @@
 # Cloud-Native Service Control Plane — Build and Learning Guide
 
-> Status: Complete through H7 and the H8.3 Collector foundation
-> Last updated: 22 July 2026
+> Status: Complete through H8
+> Last updated: 23 July 2026
 > Target: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s
 > Purpose: Explain the build, preserve the commands, and provide a reproducible reconstruction path.
 
@@ -21,11 +21,11 @@ The guide currently covers:
 - H4 — DNS and TLS foundation;
 - H5 — private GHCR and immutable delivery;
 - H6 — private Argo CD and tested rollback;
-- H7 — operator, control-plane API, managed workload, GitOps, and production TLS.
-- H8.1–H8.3 — observability design, telemetry foundations, and the validated
-  OpenTelemetry Collector boundary.
+- H7 — operator, control-plane API, managed workload, GitOps, and production TLS;
+- H8.1–H8.4 — observability design, telemetry foundations, the validated
+  OpenTelemetry Collector boundary, and bounded Prometheus.
 
-Remaining H8 and later phases should be appended only after implementation and validation. Commands are grouped by where they run.
+Later phases should be appended only after implementation and validation. Commands are grouped by where they run.
 
 | Marker | Run the command in |
 | --- | --- |
@@ -2352,16 +2352,15 @@ resource identities, procedural history, and exact case timestamps, is in
 The original Gate 3V remains procedurally failed; Gate 3V-D diagnosed the
 dataplane behavior, and Gate 3V-R is the authoritative passing execution.
 
-H8.3 is complete, and the repository-side H8.4 Prometheus runtime, six-job
-scrape configuration, restricted GitOps preparation, and PVC-preserving
-rollback plan are complete. Only the `nop` Collector exporter is live, no
-production workload exports telemetry, and Prometheus is not yet deployed.
-H8.4E owns the separately authorized manual synchronization and live
-validation; H8.4F owns evidence/documentation closeout. Kubelet, cAdvisor,
-Loki, Tempo, Grafana, and other additional backends are optional post-H8
-enhancements.
+H8.3 and H8.4 are complete. The restricted Collector and bounded Prometheus
+stack are live through manual-sync GitOps; all six accepted scrape jobs are
+healthy, PVC-backed recovery passed, and rollback was dry-run without deleting
+data. Only the `nop` Collector exporter is live, and no production workload
+exports OTLP. Kubelet, cAdvisor, Loki, Tempo, Grafana, and other additional
+backends are optional post-H8 enhancements. See
+[`h8-observability-closeout.md`](h8-observability-closeout.md).
 
-# Operational Concepts Learned Through H1–H8.3
+# Operational Concepts Learned Through H1–H8
 
 ## Desired State and Reconciliation
 
@@ -2471,7 +2470,7 @@ kubectl get events -n NAMESPACE --sort-by='.lastTimestamp'
 | H5 | Complete | Private GHCR publication, read-only cluster authentication, immutable digest deployment |
 | H6 | Complete | Private Argo CD bootstrap, restricted GitOps, and tested rollback |
 | H7 | Complete | Operator, authenticated API, managed workload, immutable images, TLS, and lifecycle validation |
-| H8 | In progress | H8.3 Collector foundation deployed and validated; Prometheus and later slices remain |
+| H8 | Complete | Restricted Collector and bounded six-job Prometheus deployment validated |
 | H9 | Not started | SmartEnergy deployment |
 | H10 | Not started | Network probe deployment |
 | H11 | Not started | Backup and recovery validation |

@@ -679,9 +679,9 @@ was unavailable. The final scope decision makes both jobs optional post-H8
 enhancements rather than acceptance requirements. H8.4C-KR3 and H8.4C-KI are
 cancelled as H8 dependencies. The evidence is recorded in
 [`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).
-H8.4D restricted GitOps registration is complete repository-side; H8.4E still
-owns live validation, and H8 remains incomplete until deployment and closeout
-finish.
+H8.4D restricted GitOps registration completed repository-side. H8.4E live
+validation and H8.4F closeout subsequently passed; see
+[`h8-observability-closeout.md`](h8-observability-closeout.md).
 
 H8.4D uses the immutable H8.4B/C revision and the explicit enabling value file
 while leaving the ordinary default render disabled. Its AppProject grants only
@@ -785,7 +785,7 @@ after:
 - H8.4E manually synchronizes and validates the prepared Prometheus package;
 - H8.4F records the sanitized deployment evidence and documentation closeout.
 
-Implementation status as of 2026-07-22:
+Implementation status as of 2026-07-23:
 
 - H8.1 and H8.2 are complete.
 - H8.3 is complete. The Collector is deployed through restricted manual-sync
@@ -794,11 +794,12 @@ Implementation status as of 2026-07-22:
   recorded in
   [`h8-collector-deployment-closeout.md`](h8-collector-deployment-closeout.md).
 - Only the `nop` exporter is enabled, and no production workload exports OTLP.
-- H8.4A-D repository development is complete. The immutable six-job package,
-  restricted manual-sync GitOps definitions, and PVC-preserving rollback
-  boundary are ready.
-- H8.4E live synchronization/validation and H8.4F closeout are the only
-  remaining H8 work.
+- H8.4A-F are complete. The immutable six-job package is live through
+  restricted manual-sync GitOps, all six targets are healthy, PVC-backed
+  recovery and rediscovery passed, and the rollback boundary was dry-run.
+- The authoritative live evidence is recorded in
+  [`h8-observability-closeout.md`](h8-observability-closeout.md). H8 is
+  complete.
 
 Optional post-H8 backends remain gated by the same node reserve and staged
 measurement rules. Do not trade away the 20% node reserve merely to complete

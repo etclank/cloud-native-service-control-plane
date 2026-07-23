@@ -110,7 +110,7 @@ It must not be described as a highly available production platform unless the ar
 
 **Public Kubernetes target:** Single-node K3s
 
-**Current phase:** H8 in progress; repository-side H8.4 is complete and H8.4E Prometheus live validation is next
+**Current phase:** H8 complete; restricted Collector and bounded Prometheus validation passed
 
 The live environment includes private Argo CD administration, the
 `ManagedService` CRD and operator, the authenticated control-plane API, the
@@ -1411,11 +1411,13 @@ Exit criteria:
 Current status:
 
 ```text
-IN PROGRESS — H8.3 Collector foundation completed and validated 2026-07-22
+COMPLETE — restricted Collector and bounded six-job Prometheus validated 2026-07-23
 ```
 
-The H8 parent phase remains incomplete. Prometheus, logs, traces, dashboards,
-retention validation, and end-to-end workload telemetry are later slices.
+The accepted H8 scope is complete. Loki, Tempo, Grafana, workload OTLP export,
+kubelet, cAdvisor, dashboards, and additional alerting are optional post-H8
+enhancements. The live evidence is recorded in
+[`h8-observability-closeout.md`](h8-observability-closeout.md).
 
 ---
 
@@ -2163,14 +2165,12 @@ The following decisions are currently authoritative:
 
 ## 48. Current Open Decisions
 
-The following decisions remain open during H8:
+The following decisions remain open for later phases:
 
-* exact persistent-volume sizes
 * backup destination
 * longer-term Secret-management mechanism beyond manually managed Kubernetes Secrets
-* final Prometheus storage and retention settings within the H8 resource gate
 * Grafana public-access mechanism
-* observability retention periods
+* retention periods for optional future backends
 * K3s upgrade strategy
 * VM snapshot policy
 * whether additional Hetzner volumes are required
@@ -2186,17 +2186,12 @@ The simplest safe and reversible option should be preferred.
 The next infrastructure phase is:
 
 ```text
-Phase H8.4 — Add resource-bounded Prometheus observability.
+Phase H9 — Deploy SmartEnergy through the validated platform.
 ```
 
-Before enabling H8.4:
-
-* capture a fresh node and pod resource baseline;
-* verify that the current 4 GB node retains the required safety margin;
-* review authenticated operator scraping and a reduced kube-state-metrics scope;
-* configure bounded Prometheus TSDB retention, storage, requests, and limits;
-* preserve private access and restricted manual-sync GitOps;
-* leave workload OTLP export disabled until its own later review.
+Before enabling H9, capture a fresh resource baseline, define the data
+persistence and backup boundary, and preserve the established immutable-image,
+restricted GitOps, and namespace-isolation controls.
 
 ---
 

@@ -7,6 +7,11 @@ accepted six-job configuration. Neither dependency is enabled in the ordinary
 H8 remains incomplete pending GitOps preparation, live validation, and
 closeout.
 
+> Subsequent status: H8.4E/F completed on 2026-07-23. See
+> [`h8-observability-closeout.md`](h8-observability-closeout.md) for the live
+> result; the statements below preserve this repository slice's original
+> boundary.
+
 ## Configuration and architecture
 
 The wrapper chart is version 0.5.0 and retains the locked dependencies:
