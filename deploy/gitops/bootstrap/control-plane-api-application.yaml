@@ -10,7 +10,7 @@ spec:
 
   source:
     repoURL: git@github.com:etclank/cloud-native-service-control-plane.git
-    targetRevision: main
+    targetRevision: 4881195ca84d6236453fcc430c97f7cbc1f1225d
     path: kubernetes/platform/control-plane-api
 
   destination:

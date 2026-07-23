@@ -37,6 +37,7 @@ const (
 	clusterServer         = "https://kubernetes.default.svc"
 	platformProjectName   = "platform-control-plane"
 	platformRepositoryURL = "git@github.com:etclank/cloud-native-service-control-plane.git"
+	h8PlatformRevision    = "4881195ca84d6236453fcc430c97f7cbc1f1225d"
 )
 
 type argoProject struct {
@@ -186,7 +187,7 @@ func assertPlatformOperatorApplication(t *testing.T, application argoApplication
 		t.Errorf("application project = %q", application.Spec.Project)
 	}
 	if application.Spec.Source.RepoURL != platformRepositoryURL ||
-		application.Spec.Source.TargetRevision != "main" ||
+		application.Spec.Source.TargetRevision != h8PlatformRevision ||
 		application.Spec.Source.Path != "config/default" {
 		t.Errorf("application source = %#v", application.Spec.Source)
 	}
@@ -226,7 +227,7 @@ func assertControlPlaneAPIApplication(t *testing.T, application argoApplication)
 		t.Errorf("API application project = %q", application.Spec.Project)
 	}
 	if application.Spec.Source.RepoURL != platformRepositoryURL ||
-		application.Spec.Source.TargetRevision != "main" ||
+		application.Spec.Source.TargetRevision != h8PlatformRevision ||
 		application.Spec.Source.Path != "kubernetes/platform/control-plane-api" {
 		t.Errorf("API application source = %#v", application.Spec.Source)
 	}
