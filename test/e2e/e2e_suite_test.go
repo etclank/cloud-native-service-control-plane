@@ -29,6 +29,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +58,9 @@ const (
 )
 
 var sha256DigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+var runtimeImageIDPattern = regexp.MustCompile(
+	`^[^@\s]+@sha256:[0-9a-f]{64}$`,
+)
 
 type demoHTTPImagePaths struct {
 	temporaryDirectory string
@@ -69,6 +73,28 @@ type runtimeImageIdentity struct {
 	ConfigDigest    string
 	OS              string
 	Architecture    string
+}
+
+type criImageIdentity struct {
+	ID           string
+	OS           string
+	Architecture string
+	DiffIDs      []string
+}
+
+type criImageInspection struct {
+	Status struct {
+		ID string `json:"id"`
+	} `json:"status"`
+	Info struct {
+		ImageSpec struct {
+			Architecture string `json:"architecture"`
+			OS           string `json:"os"`
+			RootFS       struct {
+				DiffIDs []string `json:"diff_ids"`
+			} `json:"rootfs"`
+		} `json:"imageSpec"`
+	} `json:"info"`
 }
 
 type imageDescriptor struct {
@@ -235,6 +261,7 @@ func buildAndLoadDemoHTTPImage() {
 	nodes := utils.GetNonEmptyLines(output)
 	ExpectWithOffset(1, nodes).NotTo(BeEmpty())
 	var authoritativeIdentity runtimeImageIdentity
+	canonicalCRIIdentities := make(map[string]criImageIdentity, len(nodes))
 	for _, node := range nodes {
 		identity, err := runtimeImageIdentityFromNode(node, demoHTTPImageTag)
 		ExpectWithOffset(1, err).NotTo(HaveOccurred())
@@ -263,19 +290,181 @@ func buildAndLoadDemoHTTPImage() {
 		ExpectWithOffset(1, err).NotTo(HaveOccurred())
 		ExpectWithOffset(1, canonicalIdentity).To(Equal(authoritativeIdentity))
 
+		var canonicalCRIIdentity criImageIdentity
 		Eventually(func() error {
-			cmd := exec.Command(
-				"docker", "exec", node,
-				"crictl", "inspecti", demoHTTPImage,
+			identity, err := criImageIdentityFromNode(
+				node,
+				demoHTTPImage,
 			)
-			return runDemoImageCommand(
-				cmd,
-				"verify demo-http digest through the CRI on "+node,
-			)
+			if err != nil {
+				return err
+			}
+			if err := validateCanonicalCRIImageIdentity(
+				identity,
+				authoritativeIdentity,
+			); err != nil {
+				return err
+			}
+			canonicalCRIIdentity = identity
+
+			return nil
 		}, 30*time.Second, time.Second).Should(Succeed())
+		canonicalCRIIdentities[node] = canonicalCRIIdentity
 	}
 
-	verifyLoadedDemoHTTPImage()
+	verifyLoadedDemoHTTPImage(
+		authoritativeIdentity,
+		canonicalCRIIdentities,
+	)
+}
+
+func criImageIdentityFromNode(
+	node string,
+	image string,
+) (criImageIdentity, error) {
+	cmd := exec.Command(
+		"docker", "exec", node,
+		"crictl", "inspecti", image,
+	)
+	output, err := runCRIImageInspectCommand(cmd, image, node)
+	if err != nil {
+		return criImageIdentity{}, err
+	}
+
+	return criImageIdentityFromJSON(output)
+}
+
+func runCRIImageInspectCommand(
+	cmd *exec.Cmd,
+	image string,
+	node string,
+) ([]byte, error) {
+	projectDirectory, err := utils.GetProjectDir()
+	if err != nil {
+		return nil, fmt.Errorf(
+			"resolve project directory: %w",
+			err,
+		)
+	}
+	cmd.Dir = projectDirectory
+	cmd.Env = append(os.Environ(), "GO111MODULE=on")
+	_, _ = fmt.Fprintf(
+		GinkgoWriter,
+		"running structured CRI image inspection for %q on %q\n",
+		image,
+		node,
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		stderr := ""
+		if exitError, ok := err.(*exec.ExitError); ok {
+			stderr = string(exitError.Stderr)
+		}
+		return nil, fmt.Errorf(
+			"inspect CRI image %q on %q: %s: %w",
+			image,
+			node,
+			stderr,
+			err,
+		)
+	}
+
+	return output, nil
+}
+
+func criImageIdentityFromJSON(contents []byte) (criImageIdentity, error) {
+	inspection := &criImageInspection{}
+	if err := json.Unmarshal(contents, inspection); err != nil {
+		return criImageIdentity{}, fmt.Errorf(
+			"decode CRI image inspection: %w",
+			err,
+		)
+	}
+	identity := criImageIdentity{
+		ID:           inspection.Status.ID,
+		OS:           inspection.Info.ImageSpec.OS,
+		Architecture: inspection.Info.ImageSpec.Architecture,
+		DiffIDs:      inspection.Info.ImageSpec.RootFS.DiffIDs,
+	}
+	if err := validateImageDigest("CRI image", identity.ID); err != nil {
+		return criImageIdentity{}, err
+	}
+	if identity.OS != "linux" || identity.Architecture != "amd64" {
+		return criImageIdentity{}, fmt.Errorf(
+			"CRI image platform is %s/%s, want linux/amd64",
+			identity.OS,
+			identity.Architecture,
+		)
+	}
+	if len(identity.DiffIDs) == 0 {
+		return criImageIdentity{}, fmt.Errorf(
+			"CRI image has no root filesystem diff IDs",
+		)
+	}
+	for _, digest := range identity.DiffIDs {
+		if err := validateImageDigest("CRI layer", digest); err != nil {
+			return criImageIdentity{}, err
+		}
+	}
+
+	return identity, nil
+}
+
+func validateCanonicalCRIImageIdentity(
+	identity criImageIdentity,
+	runtimeIdentity runtimeImageIdentity,
+) error {
+	if identity.ID != runtimeIdentity.ConfigDigest {
+		return fmt.Errorf(
+			"canonical CRI config digest %q does not match containerd config digest %q",
+			identity.ID,
+			runtimeIdentity.ConfigDigest,
+		)
+	}
+	if identity.OS != runtimeIdentity.OS ||
+		identity.Architecture != runtimeIdentity.Architecture {
+		return fmt.Errorf(
+			"canonical CRI platform %s/%s does not match containerd platform %s/%s",
+			identity.OS,
+			identity.Architecture,
+			runtimeIdentity.OS,
+			runtimeIdentity.Architecture,
+		)
+	}
+
+	return nil
+}
+
+func validateCRIImageEquivalence(
+	canonical criImageIdentity,
+	reported criImageIdentity,
+) error {
+	if canonical.ID != reported.ID {
+		return fmt.Errorf(
+			"runtime CRI config digest %q does not match canonical digest %q",
+			reported.ID,
+			canonical.ID,
+		)
+	}
+	if canonical.OS != reported.OS ||
+		canonical.Architecture != reported.Architecture {
+		return fmt.Errorf(
+			"runtime CRI platform %s/%s does not match canonical platform %s/%s",
+			reported.OS,
+			reported.Architecture,
+			canonical.OS,
+			canonical.Architecture,
+		)
+	}
+	if !slices.Equal(canonical.DiffIDs, reported.DiffIDs) {
+		return fmt.Errorf(
+			"runtime CRI root filesystem %q does not match canonical root filesystem %q",
+			reported.DiffIDs,
+			canonical.DiffIDs,
+		)
+	}
+
+	return nil
 }
 
 func newDemoHTTPImagePaths(temporaryDirectory string) demoHTTPImagePaths {
@@ -626,7 +815,10 @@ func validateImageManifestMediaType(mediaType string) error {
 	return nil
 }
 
-func verifyLoadedDemoHTTPImage() {
+func verifyLoadedDemoHTTPImage(
+	authoritativeIdentity runtimeImageIdentity,
+	canonicalCRIIdentities map[string]criImageIdentity,
+) {
 	By("verifying the digest-addressed demo-http image without registry pulls")
 	for _, command := range [][]string{
 		{
@@ -686,16 +878,38 @@ func verifyLoadedDemoHTTPImage() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	pod := &corev1.Pod{}
 	ExpectWithOffset(1, json.Unmarshal([]byte(output), pod)).To(Succeed())
-	ExpectWithOffset(1, pod.Spec.Containers).To(HaveLen(1))
-	ExpectWithOffset(1, pod.Spec.Containers[0].Image).To(Equal(demoHTTPImage))
-	ExpectWithOffset(1, pod.Spec.Containers[0].ImagePullPolicy).To(
-		Equal(corev1.PullNever),
+	containerStatus, err := validateProofPod(pod, demoHTTPImage)
+	ExpectWithOffset(1, err).NotTo(
+		HaveOccurred(),
+		"Proof Pod identity validation failed: %s",
+		output,
 	)
-	ExpectWithOffset(1, pod.Status.ContainerStatuses).To(HaveLen(1))
-	ExpectWithOffset(1, pod.Status.ContainerStatuses[0].ImageID).To(
-		ContainSubstring(strings.TrimPrefix(demoHTTPImage, demoHTTPImageRepository+"@")),
+	canonicalCRIIdentity, ok := canonicalCRIIdentities[pod.Spec.NodeName]
+	ExpectWithOffset(1, ok).To(
+		BeTrue(),
+		"No canonical CRI identity for proof Pod node %q",
+		pod.Spec.NodeName,
 	)
-	ExpectWithOffset(1, pod.Status.ContainerStatuses[0].RestartCount).To(BeZero())
+	reportedCRIIdentity, err := criImageIdentityFromNode(
+		pod.Spec.NodeName,
+		containerStatus.ImageID,
+	)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	ExpectWithOffset(
+		1,
+		validateCRIImageEquivalence(
+			canonicalCRIIdentity,
+			reportedCRIIdentity,
+		),
+	).To(Succeed())
+	canonicalIdentityAfterStart, err := runtimeImageIdentityFromNode(
+		pod.Spec.NodeName,
+		demoHTTPImage,
+	)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	ExpectWithOffset(1, canonicalIdentityAfterStart).To(
+		Equal(authoritativeIdentity),
+	)
 
 	cmd = exec.Command(
 		"kubectl", "get", "events",
@@ -707,10 +921,125 @@ func verifyLoadedDemoHTTPImage() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	events := &corev1.EventList{}
 	ExpectWithOffset(1, json.Unmarshal([]byte(output), events)).To(Succeed())
-	for _, event := range events.Items {
-		ExpectWithOffset(1, event.Reason).NotTo(Equal("Pulling"))
-		ExpectWithOffset(1, event.Type).NotTo(Equal(corev1.EventTypeWarning))
+	ExpectWithOffset(1, validateProofPodEvents(events)).To(Succeed())
+}
+
+func validateProofPod(
+	pod *corev1.Pod,
+	expectedImage string,
+) (corev1.ContainerStatus, error) {
+	expectedPrefix := demoHTTPImageRepository + "@"
+	if !strings.HasPrefix(expectedImage, expectedPrefix) ||
+		!sha256DigestPattern.MatchString(strings.TrimPrefix(
+			expectedImage,
+			expectedPrefix,
+		)) {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"expected proof image %q is not the canonical digest reference",
+			expectedImage,
+		)
 	}
+	if len(pod.Spec.Containers) != 1 {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof Pod has %d containers, want 1",
+			len(pod.Spec.Containers),
+		)
+	}
+	container := pod.Spec.Containers[0]
+	if container.Image != expectedImage {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof Pod requested image %q, want %q",
+			container.Image,
+			expectedImage,
+		)
+	}
+	if container.ImagePullPolicy != corev1.PullNever {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof Pod image pull policy is %q, want %q",
+			container.ImagePullPolicy,
+			corev1.PullNever,
+		)
+	}
+	if pod.Spec.NodeName == "" {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof Pod has no assigned node",
+		)
+	}
+	if len(pod.Status.ContainerStatuses) != 1 {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof Pod has %d container statuses, want 1",
+			len(pod.Status.ContainerStatuses),
+		)
+	}
+	status := pod.Status.ContainerStatuses[0]
+	if !status.Ready {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof container is not Ready",
+		)
+	}
+	if status.Started == nil || !*status.Started {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof container is not Started",
+		)
+	}
+	if status.State.Running == nil {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof container is not running",
+		)
+	}
+	if status.RestartCount != 0 {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof container restart count is %d, want 0",
+			status.RestartCount,
+		)
+	}
+	if status.ContainerID == "" {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof container has no runtime container ID",
+		)
+	}
+	if !runtimeImageIDPattern.MatchString(status.ImageID) {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof container has malformed runtime image ID %q",
+			status.ImageID,
+		)
+	}
+	if status.Image == "" {
+		return corev1.ContainerStatus{}, fmt.Errorf(
+			"proof container has no runtime image name",
+		)
+	}
+
+	return status, nil
+}
+
+func validateProofPodEvents(events *corev1.EventList) error {
+	pullFailureReasons := map[string]struct{}{
+		"BackOff":                         {},
+		"ErrImageNeverPull":               {},
+		"Failed":                          {},
+		"FailedToRetrieveImagePullSecret": {},
+		"ImagePullBackOff":                {},
+		"Pulling":                         {},
+	}
+	for _, event := range events.Items {
+		if _, rejected := pullFailureReasons[event.Reason]; rejected {
+			return fmt.Errorf(
+				"proof Pod event %q reports %q",
+				event.Reason,
+				event.Message,
+			)
+		}
+		if event.Type == corev1.EventTypeWarning {
+			return fmt.Errorf(
+				"proof Pod has Warning event %q: %s",
+				event.Reason,
+				event.Message,
+			)
+		}
+	}
+
+	return nil
 }
 
 func demoHTTPProofPodCommand(image string) *exec.Cmd {

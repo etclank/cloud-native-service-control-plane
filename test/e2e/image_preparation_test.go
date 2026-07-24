@@ -29,6 +29,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 func TestDemoHTTPImageCommandsArePortable(t *testing.T) {
@@ -179,6 +181,213 @@ func TestHostedBuildxConfigIdentityCannotDefineWorkloadDigest(t *testing.T) {
 	)
 	if strings.Contains(buildArguments, "--metadata-file") {
 		t.Errorf("Buildx metadata remains in the runtime identity path: %s", buildArguments)
+	}
+}
+
+func TestProofPodAcceptsHostedRuntimeAliasAfterStructuredEquivalence(
+	t *testing.T,
+) {
+	requestedImage :=
+		"example.com/demo-http@sha256:" +
+			"279a4d1422d7c12ee85654fdfdf3e22cb123433fb120909ee88dc95f0fdfaf62"
+	runtimeImageID :=
+		"docker.io/library/import-2026-07-24@sha256:" +
+			"cc73a299bb896948d5e790f77be315682cc80263bfd00accf60cb4d8d52eaeea"
+	pod := validProofPod(requestedImage, runtimeImageID)
+	status, err := validateProofPod(pod, requestedImage)
+	if err != nil {
+		t.Fatalf("validate hosted proof Pod fixture: %v", err)
+	}
+	if status.ImageID == requestedImage {
+		t.Fatal("hosted runtime image ID unexpectedly equals requested image")
+	}
+
+	canonical := validCRIImageIdentity()
+	reported := canonical
+	reported.DiffIDs = append([]string(nil), canonical.DiffIDs...)
+	if err := validateCRIImageEquivalence(canonical, reported); err != nil {
+		t.Fatalf("equivalent CRI identities were rejected: %v", err)
+	}
+}
+
+func TestProofPodRejectsUnprovenRuntimeIdentity(t *testing.T) {
+	requestedImage :=
+		demoHTTPImageRepository + "@sha256:" + strings.Repeat("a", 64)
+	validRuntimeImageID :=
+		"docker.io/library/import-2026-07-24@sha256:" +
+			strings.Repeat("b", 64)
+
+	t.Run("malformed runtime image ID", func(t *testing.T) {
+		pod := validProofPod(requestedImage, "import-2026-07-24:latest")
+		_, err := validateProofPod(pod, requestedImage)
+		if err == nil || !strings.Contains(err.Error(), "malformed runtime image ID") {
+			t.Errorf("runtime image ID error = %v", err)
+		}
+	})
+
+	t.Run("mutable requested image", func(t *testing.T) {
+		pod := validProofPod(requestedImage, validRuntimeImageID)
+		_, err := validateProofPod(pod, demoHTTPImageTag)
+		if err == nil || !strings.Contains(err.Error(), "canonical digest") {
+			t.Errorf("mutable image error = %v", err)
+		}
+	})
+
+	t.Run("unexpected restart", func(t *testing.T) {
+		pod := validProofPod(requestedImage, validRuntimeImageID)
+		pod.Status.ContainerStatuses[0].RestartCount = 1
+		_, err := validateProofPod(pod, requestedImage)
+		if err == nil || !strings.Contains(err.Error(), "restart count") {
+			t.Errorf("restart error = %v", err)
+		}
+	})
+
+	t.Run("not running", func(t *testing.T) {
+		pod := validProofPod(requestedImage, validRuntimeImageID)
+		pod.Status.ContainerStatuses[0].State.Running = nil
+		_, err := validateProofPod(pod, requestedImage)
+		if err == nil || !strings.Contains(err.Error(), "not running") {
+			t.Errorf("running error = %v", err)
+		}
+	})
+
+	t.Run("pull policy changed", func(t *testing.T) {
+		pod := validProofPod(requestedImage, validRuntimeImageID)
+		pod.Spec.Containers[0].ImagePullPolicy = corev1.PullIfNotPresent
+		_, err := validateProofPod(pod, requestedImage)
+		if err == nil || !strings.Contains(err.Error(), "pull policy") {
+			t.Errorf("pull policy error = %v", err)
+		}
+	})
+}
+
+func TestCRIImageEquivalenceRejectsDifferentContent(t *testing.T) {
+	canonical := validCRIImageIdentity()
+	tests := []struct {
+		name   string
+		mutate func(*criImageIdentity)
+	}{
+		{
+			name: "different config",
+			mutate: func(identity *criImageIdentity) {
+				identity.ID = "sha256:" + strings.Repeat("c", 64)
+			},
+		},
+		{
+			name: "different layer set",
+			mutate: func(identity *criImageIdentity) {
+				identity.DiffIDs = []string{
+					"sha256:" + strings.Repeat("d", 64),
+				}
+			},
+		},
+		{
+			name: "wrong platform",
+			mutate: func(identity *criImageIdentity) {
+				identity.Architecture = "arm64"
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reported := canonical
+			reported.DiffIDs = append([]string(nil), canonical.DiffIDs...)
+			test.mutate(&reported)
+			if err := validateCRIImageEquivalence(
+				canonical,
+				reported,
+			); err == nil {
+				t.Fatal("different CRI content was accepted")
+			}
+		})
+	}
+}
+
+func TestCRIImageInspectionRequiresStructuredIdentity(t *testing.T) {
+	validInspection := criImageInspection{}
+	valid := validCRIImageIdentity()
+	validInspection.Status.ID = valid.ID
+	validInspection.Info.ImageSpec.OS = valid.OS
+	validInspection.Info.ImageSpec.Architecture = valid.Architecture
+	validInspection.Info.ImageSpec.RootFS.DiffIDs = valid.DiffIDs
+	if _, err := criImageIdentityFromJSON(
+		mustJSON(t, validInspection),
+	); err != nil {
+		t.Fatalf("valid CRI inspection rejected: %v", err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*criImageInspection)
+	}{
+		{
+			name: "missing canonical identity",
+			mutate: func(inspection *criImageInspection) {
+				inspection.Status.ID = ""
+			},
+		},
+		{
+			name: "missing runtime root filesystem",
+			mutate: func(inspection *criImageInspection) {
+				inspection.Info.ImageSpec.RootFS.DiffIDs = nil
+			},
+		},
+		{
+			name: "malformed layer identity",
+			mutate: func(inspection *criImageInspection) {
+				inspection.Info.ImageSpec.RootFS.DiffIDs = []string{"sha256:abc"}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			inspection := validInspection
+			inspection.Info.ImageSpec.RootFS.DiffIDs = append(
+				[]string(nil),
+				validInspection.Info.ImageSpec.RootFS.DiffIDs...,
+			)
+			test.mutate(&inspection)
+			if _, err := criImageIdentityFromJSON(
+				mustJSON(t, inspection),
+			); err == nil {
+				t.Fatal("incomplete CRI inspection was accepted")
+			}
+		})
+	}
+}
+
+func TestProofPodWarningEventsAreRejected(t *testing.T) {
+	for _, event := range []corev1.Event{
+		{Reason: "Pulling", Type: corev1.EventTypeNormal},
+		{Reason: "BackOff", Type: corev1.EventTypeWarning},
+		{Reason: "Unexpected", Type: corev1.EventTypeWarning},
+	} {
+		events := &corev1.EventList{Items: []corev1.Event{event}}
+		if err := validateProofPodEvents(events); err == nil {
+			t.Errorf("event %#v was accepted", event)
+		}
+	}
+	if err := validateProofPodEvents(&corev1.EventList{
+		Items: []corev1.Event{{
+			Reason: "Started",
+			Type:   corev1.EventTypeNormal,
+		}},
+	}); err != nil {
+		t.Errorf("normal startup event rejected: %v", err)
+	}
+}
+
+func TestCRIImageCommandErrorIncludesStderr(t *testing.T) {
+	command := exec.Command(
+		"sh", "-c",
+		"printf structured-cri-stderr >&2; exit 25",
+	)
+	_, err := runCRIImageInspectCommand(
+		command,
+		demoHTTPImageTag,
+		"kind-node",
+	)
+	if err == nil || !strings.Contains(err.Error(), "structured-cri-stderr") {
+		t.Errorf("CRI command error = %v", err)
 	}
 }
 
@@ -524,4 +733,47 @@ func cloneBlobs(blobs map[string][]byte) map[string][]byte {
 	}
 
 	return clone
+}
+
+func validProofPod(
+	requestedImage string,
+	runtimeImageID string,
+) *corev1.Pod {
+	started := true
+	return &corev1.Pod{
+		Spec: corev1.PodSpec{
+			NodeName: "kind-node",
+			Containers: []corev1.Container{{
+				Name:            "demo-http-image-proof",
+				Image:           requestedImage,
+				ImagePullPolicy: corev1.PullNever,
+			}},
+		},
+		Status: corev1.PodStatus{
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:         "demo-http-image-proof",
+				Ready:        true,
+				Started:      &started,
+				RestartCount: 0,
+				Image:        "docker.io/library/import-2026-07-24:latest",
+				ImageID:      runtimeImageID,
+				ContainerID:  "containerd://" + strings.Repeat("e", 64),
+				State: corev1.ContainerState{
+					Running: &corev1.ContainerStateRunning{},
+				},
+			}},
+		},
+	}
+}
+
+func validCRIImageIdentity() criImageIdentity {
+	return criImageIdentity{
+		ID:           "sha256:" + strings.Repeat("a", 64),
+		OS:           "linux",
+		Architecture: "amd64",
+		DiffIDs: []string{
+			"sha256:" + strings.Repeat("b", 64),
+			"sha256:" + strings.Repeat("c", 64),
+		},
+	}
 }
