@@ -20,18 +20,20 @@ limitations under the License.
 package e2e
 
 import (
-	"archive/tar"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/etclank/cloud-native-service-control-plane/test/utils"
 )
@@ -45,7 +47,32 @@ var (
 	demoHTTPImage string
 )
 
-const demoHTTPImageRepository = "example.com/demo-http"
+const (
+	demoHTTPImageRepository = "example.com/demo-http"
+	demoHTTPImageTag        = demoHTTPImageRepository + ":e2e"
+	demoHTTPProofPodName    = "demo-http-image-proof"
+)
+
+var sha256DigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+type demoHTTPImagePaths struct {
+	temporaryDirectory string
+	metadataPath       string
+	archivePath        string
+}
+
+type buildMetadata struct {
+	ConfigDigest string `json:"containerimage.config.digest"`
+	Digest       string `json:"containerimage.digest"`
+	Descriptor   struct {
+		MediaType string `json:"mediaType"`
+		Digest    string `json:"digest"`
+		Platform  struct {
+			Architecture string `json:"architecture"`
+			OS           string `json:"os"`
+		} `json:"platform"`
+	} `json:"containerimage.descriptor"`
+}
 
 // TestE2E runs the e2e test suite to validate the solution in an isolated environment.
 // The default setup requires Kind and CertManager.
@@ -130,33 +157,32 @@ func teardownCertManager() {
 }
 
 func buildAndLoadDemoHTTPImage() {
-	By("building the demo-http OCI image for ManagedService tests")
+	By("building and loading the demo-http image for ManagedService tests")
 	temporaryDirectory, err := os.MkdirTemp("", "demo-http-e2e-")
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	defer func() {
 		ExpectWithOffset(1, os.RemoveAll(temporaryDirectory)).To(Succeed())
 	}()
 
-	archivePath := filepath.Join(temporaryDirectory, "demo-http.tar")
-	taggedImage := demoHTTPImageRepository + ":e2e"
-	cmd := exec.Command(
-		"docker", "buildx", "build",
-		"--platform", "linux/amd64",
-		"--provenance=false",
-		"--sbom=false",
-		"--build-arg", "SOURCE_DATE_EPOCH=0",
-		"--output", "type=oci,dest="+archivePath+",name="+taggedImage,
-		"--file", "images/demo-http/Dockerfile",
-		".",
+	paths := newDemoHTTPImagePaths(temporaryDirectory)
+	err = runDemoImageCommand(
+		demoHTTPBuildCommand(paths),
+		"build and load demo-http image",
 	)
-	_, err = utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to build demo-http OCI image")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
-	digest, err := imageDigestFromOCIArchive(archivePath)
+	digest, err := imageDigestFromBuildMetadata(paths.metadataPath)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	demoHTTPImage = demoHTTPImageRepository + "@" + digest
 
-	By("loading the demo-http OCI image on Kind")
+	By("exporting the loaded demo-http image as a Docker archive")
+	err = runDemoImageCommand(
+		demoHTTPSaveCommand(paths),
+		"save demo-http image archive",
+	)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+	By("loading the demo-http Docker archive on Kind")
 	kindCluster := os.Getenv("KIND_CLUSTER")
 	if kindCluster == "" {
 		kindCluster = "kind"
@@ -165,12 +191,12 @@ func buildAndLoadDemoHTTPImage() {
 	if kindBinary == "" {
 		kindBinary = "kind"
 	}
-	cmd = exec.Command(
-		kindBinary, "load", "image-archive", archivePath,
+	cmd := exec.Command(
+		kindBinary, "load", "image-archive", paths.archivePath,
 		"--name", kindCluster,
 	)
-	_, err = utils.Run(cmd)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load demo-http OCI image")
+	err = runDemoImageCommand(cmd, "load demo-http image archive into Kind")
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
 	By("registering the immutable demo-http identity on each Kind node")
 	cmd = exec.Command(kindBinary, "get", "nodes", "--name", kindCluster)
@@ -182,72 +208,244 @@ func buildAndLoadDemoHTTPImage() {
 		cmd = exec.Command(
 			"docker", "exec", node,
 			"ctr", "-n", "k8s.io", "images", "tag",
-			taggedImage, demoHTTPImage,
+			demoHTTPImageTag, demoHTTPImage,
 		)
-		_, err = utils.Run(cmd)
-		ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to register demo-http digest on %s", node)
+		err = runDemoImageCommand(
+			cmd,
+			"register demo-http digest on "+node,
+		)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+		cmd = exec.Command(
+			"docker", "exec", node,
+			"ctr", "-n", "k8s.io", "images", "list",
+			"name=="+demoHTTPImage,
+		)
+		output, err = utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred())
+		ExpectWithOffset(
+			1,
+			containerdImageTargetMatches(output, demoHTTPImage, digest),
+		).To(BeTrue())
+
+		Eventually(func() error {
+			cmd := exec.Command(
+				"docker", "exec", node,
+				"crictl", "inspecti", demoHTTPImage,
+			)
+			return runDemoImageCommand(
+				cmd,
+				"verify demo-http digest through the CRI on "+node,
+			)
+		}, 30*time.Second, time.Second).Should(Succeed())
+	}
+
+	verifyLoadedDemoHTTPImage()
+}
+
+func newDemoHTTPImagePaths(temporaryDirectory string) demoHTTPImagePaths {
+	return demoHTTPImagePaths{
+		temporaryDirectory: temporaryDirectory,
+		metadataPath:       filepath.Join(temporaryDirectory, "metadata.json"),
+		archivePath:        filepath.Join(temporaryDirectory, "demo-http.tar"),
 	}
 }
 
-func imageDigestFromOCIArchive(archivePath string) (string, error) {
-	archive, err := os.Open(archivePath)
-	if err != nil {
-		return "", fmt.Errorf("open OCI archive: %w", err)
+func demoHTTPBuildCommand(paths demoHTTPImagePaths) *exec.Cmd {
+	return exec.Command(
+		"docker", "buildx", "build",
+		"--platform", "linux/amd64",
+		"--provenance=false",
+		"--sbom=false",
+		"--build-arg", "SOURCE_DATE_EPOCH=0",
+		"--metadata-file", paths.metadataPath,
+		"--load",
+		"--tag", demoHTTPImageTag,
+		"--file", "images/demo-http/Dockerfile",
+		".",
+	)
+}
+
+func demoHTTPSaveCommand(paths demoHTTPImagePaths) *exec.Cmd {
+	return exec.Command(
+		"docker", "image", "save",
+		"--output", paths.archivePath,
+		demoHTTPImageTag,
+	)
+}
+
+func runDemoImageCommand(cmd *exec.Cmd, action string) error {
+	if _, err := utils.Run(cmd); err != nil {
+		return fmt.Errorf("%s: %w", action, err)
 	}
+
+	return nil
+}
+
+func containerdImageTargetMatches(
+	output string,
+	image string,
+	digest string,
+) bool {
+	for line := range strings.SplitSeq(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[0] == image && fields[2] == digest {
+			return true
+		}
+	}
+
+	return false
+}
+
+func imageDigestFromBuildMetadata(metadataPath string) (string, error) {
+	metadataContents, err := os.ReadFile(metadataPath)
+	if err != nil {
+		return "", fmt.Errorf("read Buildx metadata: %w", err)
+	}
+
+	metadata := &buildMetadata{}
+	if err := json.Unmarshal(metadataContents, metadata); err != nil {
+		return "", fmt.Errorf("decode Buildx metadata: %w", err)
+	}
+
+	if !sha256DigestPattern.MatchString(metadata.Digest) {
+		return "", fmt.Errorf(
+			"Buildx metadata has invalid image digest %q",
+			metadata.Digest,
+		)
+	}
+	if metadata.Descriptor.Digest != metadata.Digest {
+		return "", fmt.Errorf(
+			"Buildx descriptor digest %q does not match image digest %q",
+			metadata.Descriptor.Digest,
+			metadata.Digest,
+		)
+	}
+	if metadata.Descriptor.MediaType !=
+		"application/vnd.docker.distribution.manifest.v2+json" &&
+		metadata.Descriptor.MediaType !=
+			"application/vnd.oci.image.manifest.v1+json" {
+		return "", fmt.Errorf(
+			"Buildx descriptor media type %q is not an image manifest",
+			metadata.Descriptor.MediaType,
+		)
+	}
+	if metadata.Descriptor.Platform.OS != "linux" ||
+		metadata.Descriptor.Platform.Architecture != "amd64" {
+		return "", fmt.Errorf(
+			"Buildx descriptor platform is %s/%s, want linux/amd64",
+			metadata.Descriptor.Platform.OS,
+			metadata.Descriptor.Platform.Architecture,
+		)
+	}
+	if !sha256DigestPattern.MatchString(metadata.ConfigDigest) {
+		return "", fmt.Errorf(
+			"Buildx metadata has invalid config digest %q",
+			metadata.ConfigDigest,
+		)
+	}
+	if metadata.ConfigDigest == metadata.Digest {
+		return "", fmt.Errorf(
+			"Buildx image digest unexpectedly equals its config digest",
+		)
+	}
+
+	return metadata.Digest, nil
+}
+
+func verifyLoadedDemoHTTPImage() {
+	By("verifying the digest-addressed demo-http image without registry pulls")
+	for _, command := range [][]string{
+		{
+			"wait", "node", "--all",
+			"--for=condition=Ready", "--timeout=1m",
+		},
+		{
+			"rollout", "status", "daemonset/kindnet",
+			"--namespace", "kube-system", "--timeout=1m",
+		},
+		{
+			"rollout", "status", "deployment/coredns",
+			"--namespace", "kube-system", "--timeout=1m",
+		},
+	} {
+		cmd := exec.Command("kubectl", command...)
+		_, err := utils.Run(cmd)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	}
+
+	cmd := exec.Command(
+		"kubectl", "wait", "serviceaccount/default",
+		"--namespace", "kube-system",
+		"--for=create", "--timeout=1m",
+	)
+	_, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+	cmd = demoHTTPProofPodCommand(demoHTTPImage)
+	_, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to create demo-http image proof Pod")
 	defer func() {
-		_ = archive.Close()
+		cmd := exec.Command(
+			"kubectl", "delete", "pod", demoHTTPProofPodName,
+			"--namespace", "kube-system", "--ignore-not-found",
+		)
+		_, _ = utils.Run(cmd)
 	}()
 
-	reader := tar.NewReader(archive)
-	for {
-		header, err := reader.Next()
-		if err == io.EOF {
-			return "", fmt.Errorf("OCI archive has no index.json")
-		}
-		if err != nil {
-			return "", fmt.Errorf("read OCI archive: %w", err)
-		}
-		if header.Name != "index.json" {
-			continue
-		}
+	cmd = exec.Command(
+		"kubectl", "wait", "pod/"+demoHTTPProofPodName,
+		"--namespace", "kube-system",
+		"--for=condition=Ready", "--timeout=1m",
+	)
+	output, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(
+		HaveOccurred(),
+		"Digest-addressed demo-http proof Pod did not become Ready: %s",
+		output,
+	)
 
-		index := struct {
-			Manifests []struct {
-				Digest   string `json:"digest"`
-				Platform struct {
-					Architecture string `json:"architecture"`
-					OS           string `json:"os"`
-				} `json:"platform"`
-			} `json:"manifests"`
-		}{}
-		if err := json.NewDecoder(reader).Decode(&index); err != nil {
-			return "", fmt.Errorf("decode OCI index: %w", err)
-		}
-		if len(index.Manifests) != 1 {
-			return "", fmt.Errorf(
-				"OCI index has %d manifests, want 1",
-				len(index.Manifests),
-			)
-		}
+	cmd = exec.Command(
+		"kubectl", "get", "pod", demoHTTPProofPodName,
+		"--namespace", "kube-system", "--output", "json",
+	)
+	output, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	pod := &corev1.Pod{}
+	ExpectWithOffset(1, json.Unmarshal([]byte(output), pod)).To(Succeed())
+	ExpectWithOffset(1, pod.Spec.Containers).To(HaveLen(1))
+	ExpectWithOffset(1, pod.Spec.Containers[0].Image).To(Equal(demoHTTPImage))
+	ExpectWithOffset(1, pod.Spec.Containers[0].ImagePullPolicy).To(
+		Equal(corev1.PullNever),
+	)
+	ExpectWithOffset(1, pod.Status.ContainerStatuses).To(HaveLen(1))
+	ExpectWithOffset(1, pod.Status.ContainerStatuses[0].ImageID).To(
+		ContainSubstring(strings.TrimPrefix(demoHTTPImage, demoHTTPImageRepository+"@")),
+	)
+	ExpectWithOffset(1, pod.Status.ContainerStatuses[0].RestartCount).To(BeZero())
 
-		manifest := index.Manifests[0]
-		if manifest.Platform.OS != "linux" ||
-			manifest.Platform.Architecture != "amd64" {
-			return "", fmt.Errorf(
-				"OCI manifest platform is %s/%s, want linux/amd64",
-				manifest.Platform.OS,
-				manifest.Platform.Architecture,
-			)
-		}
-		if !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(
-			manifest.Digest,
-		) {
-			return "", fmt.Errorf(
-				"OCI manifest has invalid digest %q",
-				manifest.Digest,
-			)
-		}
-
-		return manifest.Digest, nil
+	cmd = exec.Command(
+		"kubectl", "get", "events",
+		"--namespace", "kube-system",
+		"--field-selector=involvedObject.kind=Pod,involvedObject.name="+demoHTTPProofPodName,
+		"--output", "json",
+	)
+	output, err = utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	events := &corev1.EventList{}
+	ExpectWithOffset(1, json.Unmarshal([]byte(output), events)).To(Succeed())
+	for _, event := range events.Items {
+		ExpectWithOffset(1, event.Reason).NotTo(Equal("Pulling"))
+		ExpectWithOffset(1, event.Type).NotTo(Equal(corev1.EventTypeWarning))
 	}
+}
+
+func demoHTTPProofPodCommand(image string) *exec.Cmd {
+	return exec.Command(
+		"kubectl", "run", demoHTTPProofPodName,
+		"--namespace", "kube-system",
+		"--restart=Never",
+		"--image="+image,
+		"--image-pull-policy=Never",
+	)
 }

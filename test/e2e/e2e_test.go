@@ -413,6 +413,9 @@ spec:
 			Expect(deployment.Spec.Template.Spec.Containers[0].Image).To(Equal(
 				demoHTTPImage,
 			))
+			Expect(
+				deployment.Spec.Template.Spec.Containers[0].ImagePullPolicy,
+			).To(Equal(corev1.PullIfNotPresent))
 			Expect(deployment.Spec.Template.Spec.ImagePullSecrets).To(BeEmpty())
 
 			service := getManagedServiceResource("e2e-demo")
