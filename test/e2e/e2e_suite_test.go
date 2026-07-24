@@ -29,7 +29,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -58,6 +57,7 @@ const (
 )
 
 var sha256DigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+var containerdIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var runtimeImageIDPattern = regexp.MustCompile(
 	`^[^@\s]+@sha256:[0-9a-f]{64}$`,
 )
@@ -94,6 +94,40 @@ type criImageInspection struct {
 				DiffIDs []string `json:"diff_ids"`
 			} `json:"rootfs"`
 		} `json:"imageSpec"`
+	} `json:"info"`
+}
+
+type criContainerIdentity struct {
+	ID              string
+	State           string
+	RequestedImage  string
+	RuntimeImageRef string
+	ContainerName   string
+	PodName         string
+	PodNamespace    string
+	PodUID          string
+	CreatedAt       time.Time
+	StartedAt       time.Time
+}
+
+type criContainerInspection struct {
+	Status struct {
+		ID       string `json:"id"`
+		State    string `json:"state"`
+		ImageRef string `json:"imageRef"`
+		Metadata struct {
+			Name string `json:"name"`
+		} `json:"metadata"`
+		Labels    map[string]string `json:"labels"`
+		CreatedAt string            `json:"createdAt"`
+		StartedAt string            `json:"startedAt"`
+	} `json:"status"`
+	Info struct {
+		Config struct {
+			Image struct {
+				UserSpecifiedImage string `json:"user_specified_image"`
+			} `json:"image"`
+		} `json:"config"`
 	} `json:"info"`
 }
 
@@ -429,38 +463,6 @@ func validateCanonicalCRIImageIdentity(
 			identity.Architecture,
 			runtimeIdentity.OS,
 			runtimeIdentity.Architecture,
-		)
-	}
-
-	return nil
-}
-
-func validateCRIImageEquivalence(
-	canonical criImageIdentity,
-	reported criImageIdentity,
-) error {
-	if canonical.ID != reported.ID {
-		return fmt.Errorf(
-			"runtime CRI config digest %q does not match canonical digest %q",
-			reported.ID,
-			canonical.ID,
-		)
-	}
-	if canonical.OS != reported.OS ||
-		canonical.Architecture != reported.Architecture {
-		return fmt.Errorf(
-			"runtime CRI platform %s/%s does not match canonical platform %s/%s",
-			reported.OS,
-			reported.Architecture,
-			canonical.OS,
-			canonical.Architecture,
-		)
-	}
-	if !slices.Equal(canonical.DiffIDs, reported.DiffIDs) {
-		return fmt.Errorf(
-			"runtime CRI root filesystem %q does not match canonical root filesystem %q",
-			reported.DiffIDs,
-			canonical.DiffIDs,
 		)
 	}
 
@@ -890,16 +892,42 @@ func verifyLoadedDemoHTTPImage(
 		"No canonical CRI identity for proof Pod node %q",
 		pod.Spec.NodeName,
 	)
-	reportedCRIIdentity, err := criImageIdentityFromNode(
+	containerIdentity, err := criContainerIdentityFromNode(
 		pod.Spec.NodeName,
+		containerStatus.ContainerID,
+	)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+	containerIdentityErr := validateCRIContainerIdentity(
+		pod,
+		containerStatus,
+		demoHTTPImage,
+		containerIdentity,
+	)
+	ExpectWithOffset(1, containerIdentityErr).To(
+		Succeed(),
+		"requestedImage=%q pullPolicy=%q statusImage=%q statusImageID=%q "+
+			"containerID=%q restartCount=%d CRIContainer=%#v "+
+			"canonicalCRI=%#v canonicalContainerd=%#v",
+		demoHTTPImage,
+		pod.Spec.Containers[0].ImagePullPolicy,
+		containerStatus.Image,
 		containerStatus.ImageID,
+		containerStatus.ContainerID,
+		containerStatus.RestartCount,
+		containerIdentity,
+		canonicalCRIIdentity,
+		authoritativeIdentity,
+	)
+	canonicalCRIIdentityAfterStart, err := criImageIdentityFromNode(
+		pod.Spec.NodeName,
+		demoHTTPImage,
 	)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 	ExpectWithOffset(
 		1,
-		validateCRIImageEquivalence(
+		validateCanonicalCRIImageUnchanged(
 			canonicalCRIIdentity,
-			reportedCRIIdentity,
+			canonicalCRIIdentityAfterStart,
 		),
 	).To(Succeed())
 	canonicalIdentityAfterStart, err := runtimeImageIdentityFromNode(
@@ -998,7 +1026,9 @@ func validateProofPod(
 			"proof container has no runtime container ID",
 		)
 	}
-	if !runtimeImageIDPattern.MatchString(status.ImageID) {
+	if !runtimeImageIDPattern.MatchString(
+		normalizeRuntimeImageReference(status.ImageID),
+	) {
 		return corev1.ContainerStatus{}, fmt.Errorf(
 			"proof container has malformed runtime image ID %q",
 			status.ImageID,
@@ -1011,6 +1041,266 @@ func validateProofPod(
 	}
 
 	return status, nil
+}
+
+func criContainerIdentityFromNode(
+	node string,
+	containerID string,
+) (criContainerIdentity, error) {
+	_, runtimeID, err := parseContainerID(containerID)
+	if err != nil {
+		return criContainerIdentity{}, err
+	}
+	cmd := criContainerInspectCommand(node, runtimeID)
+	output, err := runCRIContainerInspectCommand(
+		cmd,
+		containerID,
+		node,
+	)
+	if err != nil {
+		return criContainerIdentity{}, err
+	}
+
+	return criContainerIdentityFromJSON(output)
+}
+
+func criContainerInspectCommand(node string, runtimeID string) *exec.Cmd {
+	return exec.Command(
+		"docker", "exec", node,
+		"crictl", "inspect", "--output", "json", runtimeID,
+	)
+}
+
+func runCRIContainerInspectCommand(
+	cmd *exec.Cmd,
+	containerID string,
+	node string,
+) ([]byte, error) {
+	projectDirectory, err := utils.GetProjectDir()
+	if err != nil {
+		return nil, fmt.Errorf(
+			"resolve project directory: %w",
+			err,
+		)
+	}
+	cmd.Dir = projectDirectory
+	cmd.Env = append(os.Environ(), "GO111MODULE=on")
+	_, _ = fmt.Fprintf(
+		GinkgoWriter,
+		"running structured CRI container inspection for %q on %q\n",
+		containerID,
+		node,
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		stderr := ""
+		if exitError, ok := err.(*exec.ExitError); ok {
+			stderr = string(exitError.Stderr)
+		}
+		return nil, fmt.Errorf(
+			"inspect CRI container %q on %q: %s: %w",
+			containerID,
+			node,
+			stderr,
+			err,
+		)
+	}
+
+	return output, nil
+}
+
+func parseContainerID(containerID string) (string, string, error) {
+	runtimeName, runtimeID, found := strings.Cut(containerID, "://")
+	if !found || runtimeName == "" || runtimeID == "" ||
+		strings.Contains(runtimeID, "://") {
+		return "", "", fmt.Errorf(
+			"proof container has malformed runtime container ID %q",
+			containerID,
+		)
+	}
+	if runtimeName != "containerd" {
+		return "", "", fmt.Errorf(
+			"proof container runtime %q is unsupported",
+			runtimeName,
+		)
+	}
+	if !containerdIDPattern.MatchString(runtimeID) {
+		return "", "", fmt.Errorf(
+			"proof container has malformed containerd ID %q",
+			runtimeID,
+		)
+	}
+
+	return runtimeName, runtimeID, nil
+}
+
+func criContainerIdentityFromJSON(
+	contents []byte,
+) (criContainerIdentity, error) {
+	inspection := &criContainerInspection{}
+	if err := json.Unmarshal(contents, inspection); err != nil {
+		return criContainerIdentity{}, fmt.Errorf(
+			"decode CRI container inspection: %w",
+			err,
+		)
+	}
+	createdAt, err := parseCRITimestamp("createdAt", inspection.Status.CreatedAt)
+	if err != nil {
+		return criContainerIdentity{}, err
+	}
+	startedAt, err := parseCRITimestamp("startedAt", inspection.Status.StartedAt)
+	if err != nil {
+		return criContainerIdentity{}, err
+	}
+
+	return criContainerIdentity{
+		ID:              inspection.Status.ID,
+		State:           inspection.Status.State,
+		RequestedImage:  inspection.Info.Config.Image.UserSpecifiedImage,
+		RuntimeImageRef: inspection.Status.ImageRef,
+		ContainerName:   inspection.Status.Metadata.Name,
+		PodName:         inspection.Status.Labels["io.kubernetes.pod.name"],
+		PodNamespace:    inspection.Status.Labels["io.kubernetes.pod.namespace"],
+		PodUID:          inspection.Status.Labels["io.kubernetes.pod.uid"],
+		CreatedAt:       createdAt,
+		StartedAt:       startedAt,
+	}, nil
+}
+
+func parseCRITimestamp(field string, value string) (time.Time, error) {
+	if value == "" {
+		return time.Time{}, nil
+	}
+	timestamp, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil || timestamp.IsZero() {
+		return time.Time{}, fmt.Errorf(
+			"CRI container %s %q is invalid",
+			field,
+			value,
+		)
+	}
+
+	return timestamp, nil
+}
+
+func normalizeRuntimeImageReference(reference string) string {
+	for _, prefix := range []string{"containerd://", "docker-pullable://"} {
+		if strings.HasPrefix(reference, prefix) {
+			return strings.TrimPrefix(reference, prefix)
+		}
+	}
+
+	return reference
+}
+
+func validateCRIContainerIdentity(
+	pod *corev1.Pod,
+	status corev1.ContainerStatus,
+	expectedImage string,
+	identity criContainerIdentity,
+) error {
+	runtimeName, runtimeID, err := parseContainerID(status.ContainerID)
+	if err != nil {
+		return err
+	}
+	if runtimeName+"://"+identity.ID != status.ContainerID ||
+		identity.ID != runtimeID {
+		return fmt.Errorf(
+			"CRI container ID %q does not match Kubernetes container ID %q",
+			identity.ID,
+			status.ContainerID,
+		)
+	}
+	if identity.State != "CONTAINER_RUNNING" {
+		return fmt.Errorf(
+			"CRI container state is %q, want CONTAINER_RUNNING",
+			identity.State,
+		)
+	}
+	if identity.RequestedImage != expectedImage {
+		return fmt.Errorf(
+			"CRI requested image %q does not match canonical image %q",
+			identity.RequestedImage,
+			expectedImage,
+		)
+	}
+	runtimeImageRef := normalizeRuntimeImageReference(identity.RuntimeImageRef)
+	kubernetesImageID := normalizeRuntimeImageReference(status.ImageID)
+	if runtimeImageRef == "" || runtimeImageRef != kubernetesImageID {
+		return fmt.Errorf(
+			"CRI runtime image reference %q does not match Kubernetes image ID %q",
+			identity.RuntimeImageRef,
+			status.ImageID,
+		)
+	}
+	if !runtimeImageIDPattern.MatchString(runtimeImageRef) {
+		return fmt.Errorf(
+			"CRI container has malformed runtime image reference %q",
+			identity.RuntimeImageRef,
+		)
+	}
+	if identity.ContainerName != status.Name ||
+		identity.ContainerName != pod.Spec.Containers[0].Name {
+		return fmt.Errorf(
+			"CRI container name %q does not match Pod container %q",
+			identity.ContainerName,
+			status.Name,
+		)
+	}
+	if identity.PodName != pod.Name ||
+		identity.PodNamespace != pod.Namespace ||
+		identity.PodUID != string(pod.UID) {
+		return fmt.Errorf(
+			"CRI Pod identity %s/%s (%s) does not match Kubernetes Pod %s/%s (%s)",
+			identity.PodNamespace,
+			identity.PodName,
+			identity.PodUID,
+			pod.Namespace,
+			pod.Name,
+			pod.UID,
+		)
+	}
+	if !identity.CreatedAt.IsZero() && !identity.StartedAt.IsZero() &&
+		identity.StartedAt.Before(identity.CreatedAt) {
+		return fmt.Errorf(
+			"CRI container startedAt %s precedes createdAt %s",
+			identity.StartedAt,
+			identity.CreatedAt,
+		)
+	}
+
+	return nil
+}
+
+func validateCanonicalCRIImageUnchanged(
+	before criImageIdentity,
+	after criImageIdentity,
+) error {
+	if before.ID != after.ID ||
+		before.OS != after.OS ||
+		before.Architecture != after.Architecture ||
+		!slicesEqual(before.DiffIDs, after.DiffIDs) {
+		return fmt.Errorf(
+			"canonical CRI image changed from %#v to %#v",
+			before,
+			after,
+		)
+	}
+
+	return nil
+}
+
+func slicesEqual(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+
+	return true
 }
 
 func validateProofPodEvents(events *corev1.EventList) error {

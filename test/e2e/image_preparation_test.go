@@ -31,6 +31,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestDemoHTTPImageCommandsArePortable(t *testing.T) {
@@ -184,7 +185,7 @@ func TestHostedBuildxConfigIdentityCannotDefineWorkloadDigest(t *testing.T) {
 	}
 }
 
-func TestProofPodAcceptsHostedRuntimeAliasAfterStructuredEquivalence(
+func TestProofPodAcceptsHostedRuntimeAliasThroughContainerInspection(
 	t *testing.T,
 ) {
 	requestedImage :=
@@ -201,12 +202,59 @@ func TestProofPodAcceptsHostedRuntimeAliasAfterStructuredEquivalence(
 	if status.ImageID == requestedImage {
 		t.Fatal("hosted runtime image ID unexpectedly equals requested image")
 	}
+	identity := validCRIContainerIdentity(pod, status, requestedImage)
+	if err := validateCRIContainerIdentity(
+		pod,
+		status,
+		requestedImage,
+		identity,
+	); err != nil {
+		t.Fatalf("hosted container identity was rejected: %v", err)
+	}
 
-	canonical := validCRIImageIdentity()
-	reported := canonical
-	reported.DiffIDs = append([]string(nil), canonical.DiffIDs...)
-	if err := validateCRIImageEquivalence(canonical, reported); err != nil {
-		t.Fatalf("equivalent CRI identities were rejected: %v", err)
+	command := criContainerInspectCommand("kind-node", identity.ID)
+	arguments := strings.Join(command.Args, " ")
+	if !strings.Contains(
+		arguments,
+		"crictl inspect --output json "+identity.ID,
+	) {
+		t.Errorf("container inspection command is incorrect: %s", arguments)
+	}
+	if strings.Contains(arguments, status.ImageID) ||
+		strings.Contains(arguments, "inspecti") {
+		t.Errorf("runtime imageID is still used as an ImageStatus key: %s", arguments)
+	}
+}
+
+func TestParseContainerID(t *testing.T) {
+	validID := strings.Repeat("a", 64)
+	runtimeName, runtimeID, err := parseContainerID("containerd://" + validID)
+	if err != nil {
+		t.Fatalf("valid container ID rejected: %v", err)
+	}
+	if runtimeName != "containerd" || runtimeID != validID {
+		t.Errorf("parsed container ID = %q, %q", runtimeName, runtimeID)
+	}
+
+	for _, test := range []struct {
+		name        string
+		containerID string
+	}{
+		{name: "empty", containerID: ""},
+		{name: "missing runtime ID", containerID: "containerd://"},
+		{name: "missing runtime prefix", containerID: validID},
+		{name: "unsupported runtime", containerID: "docker://" + validID},
+		{name: "malformed ID", containerID: "containerd://not-a-runtime-id"},
+		{
+			name:        "nested runtime prefix",
+			containerID: "containerd://containerd://" + validID,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, _, err := parseContainerID(test.containerID); err == nil {
+				t.Fatalf("container ID %q was accepted", test.containerID)
+			}
+		})
 	}
 }
 
@@ -261,45 +309,160 @@ func TestProofPodRejectsUnprovenRuntimeIdentity(t *testing.T) {
 	})
 }
 
-func TestCRIImageEquivalenceRejectsDifferentContent(t *testing.T) {
-	canonical := validCRIImageIdentity()
+func TestCRIContainerIdentityRejectsMismatches(t *testing.T) {
+	requestedImage :=
+		demoHTTPImageRepository + "@sha256:" + strings.Repeat("a", 64)
+	runtimeImageID :=
+		"docker.io/library/import-runtime@sha256:" + strings.Repeat("b", 64)
 	tests := []struct {
 		name   string
-		mutate func(*criImageIdentity)
+		mutate func(*corev1.Pod, *corev1.ContainerStatus, *criContainerIdentity)
 	}{
 		{
-			name: "different config",
-			mutate: func(identity *criImageIdentity) {
-				identity.ID = "sha256:" + strings.Repeat("c", 64)
+			name: "mismatched requested image",
+			mutate: func(
+				_ *corev1.Pod,
+				_ *corev1.ContainerStatus,
+				identity *criContainerIdentity,
+			) {
+				identity.RequestedImage = demoHTTPImageTag
 			},
 		},
 		{
-			name: "different layer set",
-			mutate: func(identity *criImageIdentity) {
-				identity.DiffIDs = []string{
-					"sha256:" + strings.Repeat("d", 64),
-				}
+			name: "mismatched container ID",
+			mutate: func(
+				_ *corev1.Pod,
+				_ *corev1.ContainerStatus,
+				identity *criContainerIdentity,
+			) {
+				identity.ID = strings.Repeat("c", 64)
 			},
 		},
 		{
-			name: "wrong platform",
-			mutate: func(identity *criImageIdentity) {
-				identity.Architecture = "arm64"
+			name: "mismatched runtime image reference",
+			mutate: func(
+				_ *corev1.Pod,
+				_ *corev1.ContainerStatus,
+				identity *criContainerIdentity,
+			) {
+				identity.RuntimeImageRef =
+					"docker.io/library/other@sha256:" + strings.Repeat("d", 64)
+			},
+		},
+		{
+			name: "not running",
+			mutate: func(
+				_ *corev1.Pod,
+				_ *corev1.ContainerStatus,
+				identity *criContainerIdentity,
+			) {
+				identity.State = "CONTAINER_EXITED"
+			},
+		},
+		{
+			name: "missing runtime reference",
+			mutate: func(
+				_ *corev1.Pod,
+				_ *corev1.ContainerStatus,
+				identity *criContainerIdentity,
+			) {
+				identity.RuntimeImageRef = ""
+			},
+		},
+		{
+			name: "mismatched Pod metadata",
+			mutate: func(
+				_ *corev1.Pod,
+				_ *corev1.ContainerStatus,
+				identity *criContainerIdentity,
+			) {
+				identity.PodUID = "different"
+			},
+		},
+		{
+			name: "mismatched container metadata",
+			mutate: func(
+				_ *corev1.Pod,
+				_ *corev1.ContainerStatus,
+				identity *criContainerIdentity,
+			) {
+				identity.ContainerName = "different"
 			},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			reported := canonical
-			reported.DiffIDs = append([]string(nil), canonical.DiffIDs...)
-			test.mutate(&reported)
-			if err := validateCRIImageEquivalence(
-				canonical,
-				reported,
+			pod := validProofPod(requestedImage, runtimeImageID)
+			status, err := validateProofPod(pod, requestedImage)
+			if err != nil {
+				t.Fatalf("validate proof Pod fixture: %v", err)
+			}
+			identity := validCRIContainerIdentity(pod, status, requestedImage)
+			test.mutate(pod, &status, &identity)
+			if err := validateCRIContainerIdentity(
+				pod,
+				status,
+				requestedImage,
+				identity,
 			); err == nil {
-				t.Fatal("different CRI content was accepted")
+				t.Fatal("mismatched CRI container identity was accepted")
 			}
 		})
+	}
+}
+
+func TestCRIContainerInspectionRequiresStructuredIdentity(t *testing.T) {
+	pod := validProofPod(
+		demoHTTPImageRepository+"@sha256:"+strings.Repeat("a", 64),
+		"docker.io/library/import-runtime@sha256:"+strings.Repeat("b", 64),
+	)
+	status := pod.Status.ContainerStatuses[0]
+	validInspection := validCRIContainerInspection(pod, status, pod.Spec.Containers[0].Image)
+	identity, err := criContainerIdentityFromJSON(mustJSON(t, validInspection))
+	if err != nil {
+		t.Fatalf("valid CRI container inspection rejected: %v", err)
+	}
+	if err := validateCRIContainerIdentity(
+		pod,
+		status,
+		pod.Spec.Containers[0].Image,
+		identity,
+	); err != nil {
+		t.Fatalf("valid CRI container identity rejected: %v", err)
+	}
+
+	validInspection.Status.ImageRef = "containerd://" + status.ImageID
+	identity, err = criContainerIdentityFromJSON(mustJSON(t, validInspection))
+	if err != nil {
+		t.Fatalf("prefixed CRI image reference rejected: %v", err)
+	}
+	if err := validateCRIContainerIdentity(
+		pod,
+		status,
+		pod.Spec.Containers[0].Image,
+		identity,
+	); err != nil {
+		t.Fatalf("normalized CRI image reference rejected: %v", err)
+	}
+
+	validInspection.Status.CreatedAt = "not-a-timestamp"
+	if _, err := criContainerIdentityFromJSON(
+		mustJSON(t, validInspection),
+	); err == nil {
+		t.Fatal("malformed CRI timestamp was accepted")
+	}
+}
+
+func TestCanonicalCRIImageMustRemainUnchanged(t *testing.T) {
+	before := validCRIImageIdentity()
+	after := before
+	after.DiffIDs = append([]string(nil), before.DiffIDs...)
+	if err := validateCanonicalCRIImageUnchanged(before, after); err != nil {
+		t.Fatalf("unchanged canonical image rejected: %v", err)
+	}
+	after.DiffIDs[0] = "sha256:" + strings.Repeat("d", 64)
+	if err := validateCanonicalCRIImageUnchanged(before, after); err == nil {
+		t.Fatal("changed canonical image accepted")
 	}
 }
 
@@ -388,6 +551,21 @@ func TestCRIImageCommandErrorIncludesStderr(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "structured-cri-stderr") {
 		t.Errorf("CRI command error = %v", err)
+	}
+}
+
+func TestCRIContainerCommandErrorIncludesStderr(t *testing.T) {
+	command := exec.Command(
+		"sh", "-c",
+		"printf structured-container-stderr >&2; exit 26",
+	)
+	_, err := runCRIContainerInspectCommand(
+		command,
+		"containerd://"+strings.Repeat("a", 64),
+		"kind-node",
+	)
+	if err == nil || !strings.Contains(err.Error(), "structured-container-stderr") {
+		t.Errorf("CRI container command error = %v", err)
 	}
 }
 
@@ -741,6 +919,11 @@ func validProofPod(
 ) *corev1.Pod {
 	started := true
 	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      demoHTTPProofPodName,
+			Namespace: "kube-system",
+			UID:       "proof-pod-uid",
+		},
 		Spec: corev1.PodSpec{
 			NodeName: "kind-node",
 			Containers: []corev1.Container{{
@@ -764,6 +947,51 @@ func validProofPod(
 			}},
 		},
 	}
+}
+
+func validCRIContainerIdentity(
+	pod *corev1.Pod,
+	status corev1.ContainerStatus,
+	requestedImage string,
+) criContainerIdentity {
+	_, runtimeID, err := parseContainerID(status.ContainerID)
+	if err != nil {
+		panic(err)
+	}
+
+	return criContainerIdentity{
+		ID:              runtimeID,
+		State:           "CONTAINER_RUNNING",
+		RequestedImage:  requestedImage,
+		RuntimeImageRef: status.ImageID,
+		ContainerName:   status.Name,
+		PodName:         pod.Name,
+		PodNamespace:    pod.Namespace,
+		PodUID:          string(pod.UID),
+	}
+}
+
+func validCRIContainerInspection(
+	pod *corev1.Pod,
+	status corev1.ContainerStatus,
+	requestedImage string,
+) criContainerInspection {
+	identity := validCRIContainerIdentity(pod, status, requestedImage)
+	inspection := criContainerInspection{}
+	inspection.Status.ID = identity.ID
+	inspection.Status.State = identity.State
+	inspection.Status.ImageRef = identity.RuntimeImageRef
+	inspection.Status.Metadata.Name = identity.ContainerName
+	inspection.Status.Labels = map[string]string{
+		"io.kubernetes.pod.name":      identity.PodName,
+		"io.kubernetes.pod.namespace": identity.PodNamespace,
+		"io.kubernetes.pod.uid":       identity.PodUID,
+	}
+	inspection.Status.CreatedAt = "2026-07-24T19:47:34.64105549Z"
+	inspection.Status.StartedAt = "2026-07-24T19:47:34.751660672Z"
+	inspection.Info.Config.Image.UserSpecifiedImage = identity.RequestedImage
+
+	return inspection
 }
 
 func validCRIImageIdentity() criImageIdentity {
