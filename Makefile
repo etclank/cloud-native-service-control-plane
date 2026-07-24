@@ -70,6 +70,7 @@ test: manifests generate fmt vet setup-envtest kustomize observability-dependenc
 # CertManager is installed by default; skip with:
 # - CERT_MANAGER_INSTALL_SKIP=true
 KIND_CLUSTER ?= cloud-native-service-control-plane-test-e2e
+E2E_DEMO_HTTP_IMAGE ?= ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:bf9a75e48c4cbe2a14be4c61339115b76c2af11a06bfcc1b560f52ff3ed46e9e
 
 .PHONY: setup-test-e2e
 setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
@@ -87,8 +88,10 @@ setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
 
 .PHONY: test-e2e
 test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
-	$(MAKE) cleanup-test-e2e
+	@status=0; \
+	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v || status=$$?; \
+	$(MAKE) cleanup-test-e2e || { cleanup_status=$$?; [ $$status -ne 0 ] || status=$$cleanup_status; }; \
+	exit $$status
 
 .PHONY: cleanup-test-e2e
 cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
@@ -175,9 +178,22 @@ ifneq ($(origin IMG),file)
 endif
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" apply -f -
 
+.PHONY: deploy-test-e2e
+deploy-test-e2e: manifests kustomize ## Deploy the controller with the isolated E2E configuration.
+	@render="$$( "$(KUSTOMIZE)" build config/e2e )"; \
+	configured_image='--demo-http-image=ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:bf9a75e48c4cbe2a14be4c61339115b76c2af11a06bfcc1b560f52ff3ed46e9e'; \
+	replacement_image='--demo-http-image=$(E2E_DEMO_HTTP_IMAGE)'; \
+	count="$$( printf '%s\n' "$$render" | grep -F -c -- "$$configured_image" )"; \
+	[ "$$count" -eq 1 ] || { echo "expected one configured demo-http image, found $$count" >&2; exit 1; }; \
+	printf '%s\n' "$$render" | sed "s|$$configured_image|$$replacement_image|" | "$(KUBECTL)" apply -f -
+
 .PHONY: undeploy
 undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	"$(KUSTOMIZE)" build config/default | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
+
+.PHONY: undeploy-test-e2e
+undeploy-test-e2e: kustomize ## Undeploy the controller's isolated E2E configuration.
+	"$(KUSTOMIZE)" build config/e2e | "$(KUBECTL)" delete --ignore-not-found=$(ignore-not-found) -f -
 
 ##@ Dependencies
 

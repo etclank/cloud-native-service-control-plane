@@ -1,0 +1,14 @@
+- op: add
+  path: /spec/ingress/-
+  value:
+    from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: platform-system
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/component: metrics-probe
+          app.kubernetes.io/name: e2e-metrics-client
+    ports:
+    - port: 8443
+      protocol: TCP

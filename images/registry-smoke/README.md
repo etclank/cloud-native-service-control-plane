@@ -16,3 +16,4 @@ The container runs as UID/GID `65534`, listens on port `8080`, and returns:
   "revision": "<full Git commit>",
   "built_at": "<UTC build time>"
 }
+```

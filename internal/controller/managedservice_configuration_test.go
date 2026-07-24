@@ -212,6 +212,65 @@ func TestRenderedManagerConfiguration(t *testing.T) {
 	}
 }
 
+func TestRenderedE2EManagerConfiguration(t *testing.T) {
+	kustomizePath := filepath.Join("..", "..", "bin", "kustomize")
+	configurationPath := filepath.Join("..", "..", "config", "e2e")
+	command := exec.Command(kustomizePath, "build", configurationPath)
+	rendered, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("render E2E manager configuration: %v\n%s", err, rendered)
+	}
+
+	deployment := findRenderedManagerDeployment(t, rendered)
+	manager := findManagerContainer(t, deployment)
+	if manager.Image != "example.com/cloud-native-service-control-plane:v0.0.1" {
+		t.Errorf("E2E manager image = %q", manager.Image)
+	}
+	if len(deployment.Spec.Template.Spec.ImagePullSecrets) != 0 {
+		t.Errorf(
+			"E2E manager imagePullSecrets = %#v, want none",
+			deployment.Spec.Template.Spec.ImagePullSecrets,
+		)
+	}
+	arguments := argumentCounts(manager.Args)
+	if arguments["--managed-service-image-pull-secret="+approvedImagePullSecret] != 0 {
+		t.Error("E2E manager configures the production image pull Secret")
+	}
+	if arguments["--demo-http-image="+approvedDemoHTTPImage] != 1 {
+		t.Error("E2E render does not retain the replaceable approved demo image")
+	}
+
+	metricsPolicy := findRenderedManagerMetricsPolicy(t, rendered)
+	wantE2EIngress := networkingv1.NetworkPolicyIngressRule{
+		From: []networkingv1.NetworkPolicyPeer{{
+			NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+				"kubernetes.io/metadata.name": platformSystemNamespace,
+			}},
+			PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+				applicationNameLabel:          "e2e-metrics-client",
+				"app.kubernetes.io/component": "metrics-probe",
+			}},
+		}},
+		Ports: []networkingv1.NetworkPolicyPort{{
+			Protocol: ptr.To(corev1.ProtocolTCP),
+			Port:     ptr.To(intstr.FromInt32(8443)),
+		}},
+	}
+	if len(metricsPolicy.Spec.Ingress) != 2 {
+		t.Fatalf(
+			"E2E metrics ingress rule count = %d, want 2",
+			len(metricsPolicy.Spec.Ingress),
+		)
+	}
+	if !reflect.DeepEqual(metricsPolicy.Spec.Ingress[1], wantE2EIngress) {
+		t.Errorf(
+			"E2E metrics ingress rule = %#v, want %#v",
+			metricsPolicy.Spec.Ingress[1],
+			wantE2EIngress,
+		)
+	}
+}
+
 func TestDefaultInstallerPreservesCommittedImage(t *testing.T) {
 	repositoryRoot := filepath.Join("..", "..")
 	kustomizationPath := filepath.Join(
