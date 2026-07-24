@@ -8,6 +8,15 @@
 
 **Cluster changes made while preparing this design:** none
 
+> **Final status (24 July 2026):** H8 is complete with the smaller accepted
+> Collector, standalone Prometheus, and reduced kube-state-metrics scope
+> recorded in
+> [`h8-observability-closeout.md`](h8-observability-closeout.md). Early
+> references in this document to a complete Loki/Tempo/Grafana stack, an 8GiB
+> resize gate, or mandatory H9 sequencing preserve the original design
+> analysis; they are not current baseline requirements. Those components are
+> optional improvements.
+
 ## 1. Decision Summary
 
 H8 should use a deliberately small, single-node observability stack in an
@@ -38,9 +47,9 @@ The resulting decision is:
   stops at the thresholds in this document;
 - **NO-GO** for declaring the complete H8 stack steady-state on the current
   4 GB node;
-- **resize to at least 8 GiB RAM before completing H8, and therefore before
-  starting H9**. Four vCPUs would improve compaction and query headroom, but
-  memory is the present hard gate.
+- **resize to at least 8 GiB RAM before enabling the originally proposed full
+  backend stack**. Four vCPUs would improve compaction and query headroom, but
+  memory was the hard gate for that larger design.
 
 This is a portfolio and learning environment, not a highly available
 production observability platform. A node failure can interrupt every signal
@@ -459,9 +468,9 @@ the 9Gi claim plan disk-feasible: even fully consumed it would leave about
 
 Use `Retain` semantics during early implementation where the chart permits it,
 or explicitly protect PVC deletion in Argo CD. Automatic pruning remains off.
-Deleting a backend or PVC is a separate reviewed operation. H11 must add
-backup/restore decisions; until then, observability data is disposable and no
-durability claim is made.
+Deleting a backend or PVC is a separate reviewed operation. Any future
+irreplaceable state requires explicit backup/restore decisions; the original
+design treated observability data as disposable.
 
 Additional controls:
 
@@ -805,7 +814,7 @@ Optional post-H8 backends remain gated by the same node reserve and staged
 measurement rules. Do not trade away the 20% node reserve merely to complete
 the earlier expansion diagram.
 
-## 12. Go/No-Go Decision and H9 Gate
+## 12. Historical Full-Stack Go/No-Go Decision
 
 ### Current 4 GB node
 
@@ -827,10 +836,11 @@ Proceed only if the existing platform plus the full 704Mi request budget leaves
 at least 20% allocatable memory free and one 512Mi Prometheus-limit rollout
 fits without surge.
 
-H9 adds PostgreSQL, Redis, an API, and a dashboard. It must not begin on the
-current 4 GB node, even if a partial H8 pilot appears idle. H9 needs a new
-capacity and local-storage review after H8 has completed a retention-window
-soak.
+The former H9 proposal added PostgreSQL, Redis, an API, and a dashboard. It was
+not accepted into the baseline and is no longer a mandatory next phase. If
+SmartEnergy or an equivalent stateful stack is later proposed, it requires a
+fresh capacity, persistence, backup, and local-storage review; the earlier
+full-stack estimates remain useful conservative input.
 
 ## 13. Validation Plan and Authoritative References
 

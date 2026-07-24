@@ -2,23 +2,14 @@
 
 ## 1. Purpose of This Document
 
-This document is the authoritative infrastructure and deployment context for hosting the Cloud-Native Service Control Plane and its portfolio workloads on a Hetzner Cloud virtual machine.
+This document preserves the authoritative infrastructure and deployment
+context for hosting the Cloud-Native Service Control Plane and its portfolio
+workloads on a Hetzner Cloud virtual machine.
 
-It is intended to be supplied to:
-
-* the dedicated Hetzner infrastructure ChatGPT conversation
-* Codex infrastructure agents
-* deployment agents
-* Linux administration agents
-* Kubernetes agents
-* security review agents
-* observability agents
-* troubleshooting agents
-* documentation agents
-
-Its purpose is to preserve architectural decisions, deployment boundaries, security requirements, implementation phases, validation expectations, and operational context across separate conversations and agent sessions.
-
-Agents working on the Hetzner environment should read this document before recommending or applying infrastructure changes.
+It records architectural decisions, deployment boundaries, security
+requirements, the completed H1–H8 roadmap, validation expectations, and
+operational context. Maintainers should review it before proposing or applying
+infrastructure changes.
 
 ---
 
@@ -39,7 +30,7 @@ cloud-native-service-control-plane
 Current platform closeout:
 
 ```text
-docs/h7-platform-deployment-closeout.md
+docs/project-closeout.md
 ```
 
 Main project README:
@@ -56,29 +47,26 @@ It does not own the internal implementation of:
 * the `ManagedService` custom resource
 * the Go control-plane REST API
 * the Go demo application
-* the Go synthetic network probe
 * the SmartEnergy application
 
-Those components are developed in the project-development workflow and deployed through the infrastructure defined here.
+Those components are developed in their source packages and deployed through
+the infrastructure defined here. SmartEnergy and the synthetic probe are
+optional improvements, not implemented baseline components.
 
 ---
 
 ## 3. Infrastructure Objective
 
-The immediate objective is to create a secure, reproducible, publicly accessible Kubernetes environment on a Hetzner Cloud VM.
-
-The environment will host:
+The objective was to create a secure, reproducible Kubernetes environment on
+a Hetzner Cloud VM with narrowly approved public application access. The
+implemented environment hosts:
 
 * the Go Kubernetes Operator
 * the Go control-plane API
 * the managed Go demo application
 * the OpenTelemetry Collector
-* the Grafana observability environment
-* the synthetic network probe
 * Argo CD
-* the SmartEnergy API and dashboard
-* PostgreSQL
-* Redis
+* bounded Prometheus and reduced kube-state-metrics
 * supporting Kubernetes resources
 
 The environment is designed as:
@@ -100,7 +88,7 @@ It must not be described as a highly available production platform unless the ar
 
 **Current VM status:** `portfolio-k3s-01`, CX23, 2 vCPU, 4 GB RAM, 40 GB SSD
 
-**Current deployment status:** H7 complete; H8.3 Collector foundation complete
+**Current deployment status:** H1–H8 complete for the current portfolio scope
 
 **Current Kubernetes status:** Single-node K3s `v1.36.2+k3s1`, healthy
 
@@ -110,15 +98,16 @@ It must not be described as a highly available production platform unless the ar
 
 **Public Kubernetes target:** Single-node K3s
 
-**Current phase:** H8 complete; restricted Collector and bounded Prometheus validation passed
+**Current phase:** baseline closed on 24 July 2026; no mandatory next phase
 
 The live environment includes private Argo CD administration, the
 `ManagedService` CRD and operator, the authenticated control-plane API, the
 managed `portfolio-demo` workload, and a private, NetworkPolicy-restricted
-OpenTelemetry Collector. The Collector currently uses only a `nop` exporter;
-no production workload exports telemetry. Operational work must still inspect
-current state before changing it; closeout records are evidence, not permission
-to assume that live state can never drift.
+OpenTelemetry Collector plus persistent Prometheus and reduced
+kube-state-metrics. The Collector uses only a `nop` exporter; no production
+workload exports OTLP. Operational work must inspect current state before
+changing it; closeout records are evidence, not permission to assume that live
+state can never drift.
 
 ---
 
@@ -166,7 +155,7 @@ Do not deploy the complete stack in one large operation.
 
 ---
 
-## 6. Target Architecture
+## 6. Implemented Architecture
 
 ```text
                               Public Internet
@@ -188,7 +177,7 @@ Do not deploy the complete stack in one large operation.
             +------------------------+------------------------+
             |                        |                        |
             v                        v                        v
-   Control-Plane API        Managed Applications       Protected Grafana
+   Control-Plane API        Managed Applications       Private Observability
             |                        |                        |
             |                        |                        |
             +------------------------+------------------------+
@@ -201,21 +190,16 @@ Do not deploy the complete stack in one large operation.
  Kubernetes Operator      OpenTelemetry Collector              Argo CD
        |                             |                             |
        v                             v                             v
- ManagedService CRs          Logs / Metrics / Traces      GitOps Reconciliation
-                                     |
-                       +-------------+-------------+
-                       |             |             |
-                       v             v             v
-                     Loki          Tempo     Prometheus/Mimir
-                                     |
-                                  Grafana
+ ManagedService CRs       Collector + Prometheus          GitOps Reconciliation
+                                 |
+                         kube-state-metrics
 ```
 
 ---
 
-## 7. Initial Environment Model
+## 7. Environment Model
 
-The initial deployment will use:
+The implemented deployment uses:
 
 ```text
 One Hetzner Cloud VM
@@ -227,7 +211,7 @@ Traefik ingress
 cert-manager
 Argo CD
 Persistent local volumes
-External DNS records managed outside Kubernetes initially
+External DNS records managed outside Kubernetes
 ```
 
 This design prioritises:
@@ -251,9 +235,9 @@ These limitations must be documented in the public repository.
 
 ---
 
-## 8. Proposed Kubernetes Namespace Model
+## 8. Kubernetes Namespace Model
 
-The initial namespace plan is:
+The implemented platform uses:
 
 ```text
 kube-system
@@ -261,9 +245,7 @@ cert-manager
 argocd
 platform-system
 applications
-smartenergy
 observability
-monitoring
 ```
 
 Possible responsibilities:
@@ -285,28 +267,15 @@ Contains:
 
 * Go demo service
 * services created through `ManagedService`
-* synthetic test workloads
-
-### `smartenergy`
-
-Contains:
-
-* SmartEnergy FastAPI application
-* dashboard
-* PostgreSQL
-* Redis
-* migration Jobs
-* SmartEnergy-specific Secrets and ConfigMaps
+* approved validation workloads when explicitly created
 
 ### `observability`
 
 Contains:
 
 * OpenTelemetry Collector
-* Loki
-* Tempo
-* Prometheus or Mimir
-* Grafana
+* Prometheus
+* reduced kube-state-metrics
 * observability configuration
 
 ### `argocd`
@@ -321,53 +290,23 @@ Contains:
 
 * cert-manager components
 
-The final namespace structure may change when deployment packaging is implemented, but namespace ownership should remain explicit.
+Additional namespaces require an explicit ownership, AppProject, RBAC,
+NetworkPolicy, and Secret boundary.
 
 ---
 
-## 9. Initial VM Requirements
+## 9. VM Capacity
 
-The final Hetzner VM type must be selected based on:
+The implemented server is a cost-optimized Hetzner CX23 with 2 vCPU, 4GB RAM,
+and a 40GB SSD. H8 closeout measured about 6% CPU and 58% memory with the
+accepted workloads Ready. Prometheus is bounded by 100m/400m CPU,
+256Mi/512Mi memory, 72-hour and 2GB retention, and a 3Gi local-path PVC.
 
-* expected K3s overhead
-* observability-stack memory usage
-* PostgreSQL requirements
-* Redis requirements
-* application workload count
-* budget
-* x86 versus ARM compatibility
-* container-image architecture availability
-
-A reasonable initial target is expected to require approximately:
-
-```text
-4–8 vCPUs
-8–16 GB RAM
-80 GB or more local storage
-Ubuntu LTS
-```
-
-A smaller VM may be used for the earliest bootstrap, but the complete platform should not be deployed onto an undersized machine merely to minimise cost.
-
-Before selecting the VM, the infrastructure conversation should estimate resource usage for:
-
-* K3s
-* Traefik
-* cert-manager
-* Argo CD
-* Operator
-* control-plane API
-* demo applications
-* OpenTelemetry Collector
-* Grafana
-* Loki
-* Tempo
-* Prometheus or Mimir
-* SmartEnergy API
-* PostgreSQL
-* Redis
-
-The exact server type remains an open decision until this sizing review is completed.
+These figures are point-in-time evidence, not a permanent capacity guarantee.
+Before adding a workload, account for its requests, limits, rollout surge,
+storage growth, image architecture, and representative traffic. A database,
+additional telemetry backends, or a highly available topology needs a new
+sizing and failure-domain decision.
 
 ---
 
@@ -392,7 +331,8 @@ The initial operating-system setup should cover:
 * kernel and networking requirements for K3s
 * container and K3s storage paths
 
-Agents must not disable security controls simply because an installation guide suggests doing so without explaining the consequence.
+Do not disable security controls merely because an installation guide suggests
+it; document the consequence and use the narrowest compatible correction.
 
 ---
 
@@ -667,7 +607,8 @@ Ingress definitions must not allow arbitrary unsafe annotations without validati
 
 ## 18. Persistent Storage Strategy
 
-The first cluster will likely use K3s local-path storage.
+The cluster uses K3s local-path storage. Prometheus is the only implemented
+portfolio component in this repository with a persistent application PVC.
 
 This is acceptable for the portfolio environment but has important limitations:
 
@@ -677,17 +618,7 @@ This is acceptable for the portfolio environment but has important limitations:
 * storage failure recovery is manual
 * backups are essential
 
-Persistent workloads include:
-
-* PostgreSQL
-* Grafana state if not provisioned declaratively
-* Loki data
-* Tempo data
-* Prometheus or Mimir data
-* Argo CD state
-* SmartEnergy data
-
-The deployment plan must determine:
+Any additional persistent workload must determine:
 
 * which data must persist
 * which data can be recreated
@@ -700,9 +631,11 @@ Observability retention should remain deliberately limited to control disk growt
 
 ---
 
-## 19. Backup and Recovery Strategy
+## 19. Backup and Recovery Boundary
 
-A portfolio environment still requires a documented recovery plan.
+Git provides the reconstruction source for non-secret declarative
+configuration. The current baseline does not include automated off-node
+backups or a validated full-cluster disaster-recovery exercise.
 
 The strategy should distinguish:
 
@@ -713,8 +646,6 @@ Recoverable from Git:
 * Kubernetes manifests
 * Helm values
 * Argo CD applications
-* dashboards
-* alert rules
 * Collector configuration
 * application configuration without secrets
 * Operator and API images
@@ -731,22 +662,20 @@ Potential backup targets:
 
 ### 19.3 Application Data
 
-Must include:
-
-* PostgreSQL logical backups
-* SmartEnergy application data
-* any irreplaceable generated data
+Prometheus history resides on a 3Gi local-path PVC with a `Delete` reclaim
+policy. PostgreSQL, Redis, and SmartEnergy data are not present in the current
+baseline. Any future stateful application must define off-node backup,
+retention, restore, and deletion behavior before deployment.
 
 ### 19.4 Recovery Validation
 
-A backup is not considered reliable until a restore procedure has been tested.
-
-The first recovery exercise should validate at least:
+A backup should not be considered reliable until a restore procedure has been
+tested. An optional recovery exercise could validate:
 
 1. rebuilding a replacement VM
 2. reinstalling K3s
 3. restoring GitOps configuration
-4. restoring PostgreSQL
+4. restoring retained application data
 5. restoring public application access
 6. validating certificates and DNS
 
@@ -865,9 +794,10 @@ Initial credentials must be changed or rotated immediately.
 
 ---
 
-## 24. Grafana Access Policy
+## 24. Optional Grafana Access Policy
 
-Grafana may eventually be shown during interviews, but access must remain controlled.
+Grafana is not implemented in the current baseline. If added as an optional
+improvement, access must remain controlled.
 
 Possible approaches:
 
@@ -893,49 +823,29 @@ Logs and traces must be reviewed for sensitive-data leakage before Grafana is ma
 
 ## 25. Observability Deployment
 
-The first observability component is deployed. The OpenTelemetry Collector is
+The accepted observability stack is deployed. The OpenTelemetry Collector is
 managed by a restricted, manually synchronized Argo CD Application in the
 `observability` namespace. Its authorized OTLP/HTTP paths from
 `platform-system` and `applications` have been validated; unauthorized
 identities and policy-excluded TCP 13133 are blocked. It has no durable backend
-and uses only the `nop` exporter. See
+and uses only the `nop` exporter. Bounded Prometheus and reduced
+kube-state-metrics provide six accepted private scrape jobs with a 3Gi
+local-path PVC. See
 [`h8-collector-deployment-closeout.md`](h8-collector-deployment-closeout.md)
-for the authoritative H8.3D evidence.
+for Collector evidence and
+[`h8-observability-closeout.md`](h8-observability-closeout.md) for final H8
+acceptance.
 
-The remaining observability deployment uses a simplified stack.
-
-Expected components:
-
-* OpenTelemetry Collector
-* Grafana
-* Loki
-* Tempo
-* Prometheus or Mimir
-
-The infrastructure plan must consider:
-
-* memory limits
-* CPU limits
-* persistent storage
-* retention
-* compaction
-* log volume
-* trace sampling
-* metric cardinality
-* dashboard provisioning
-* alert-rule provisioning
-* authentication
-* public exposure
-
-The observability stack is likely the most resource-intensive component.
-
-It should be deployed after the base cluster and application workloads are stable.
+Grafana, Loki, Tempo, workload OTLP export, kubelet/cAdvisor metrics, and
+expanded alerting are optional. Each would require a new resource, retention,
+security, and exposure review.
 
 ---
 
-## 26. SmartEnergy Deployment
+## 26. Optional SmartEnergy Deployment
 
-The SmartEnergy deployment will contain:
+SmartEnergy is not deployed in the current baseline. A future implementation
+could contain:
 
 ```text
 FastAPI API
@@ -949,7 +859,7 @@ PersistentVolumeClaims
 OpenTelemetry configuration
 ```
 
-The initial environment may use:
+An initial reviewed implementation could use:
 
 * one PostgreSQL instance
 * one Redis instance
@@ -960,7 +870,7 @@ This is acceptable for demonstration purposes.
 
 The documentation must state that this is not a highly available database architecture.
 
-Required operational checks:
+Required checks before accepting such an optional implementation would include:
 
 * database persistence after pod replacement
 * migration idempotency
@@ -1013,9 +923,9 @@ The public API is `https://api.platform.eoghanclancy.eu`. Health and readiness a
 Runtime images are pinned to these immutable identities:
 
 ```text
-ghcr.io/etclank/cloud-native-service-control-plane-operator@sha256:377af6a1fb4df40c52d6be37d4e948ca1990fe4c0f840789da68fc3e449ffc75
-ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:2d1fc30e0cf75ba9fbe96af176f770524377ee5349acbee9ed94ae13f1143b2f
-ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:22ffdf07c24af219a1fe493095c3293c480da4f3cdc04ccc167e65ae81d631ad
+ghcr.io/etclank/cloud-native-service-control-plane-operator@sha256:8f166fe9cdcbab093dee0bbef460e96dc1ec612973c48f9a07de35f16f4d0937
+ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:bf9a75e48c4cbe2a14be4c61339115b76c2af11a06bfcc1b560f52ff3ed46e9e
+ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:604c16f04b00272b7b45072ff0c50c5c2d081fbc4ee795e62a4ed1fc861df36e
 ```
 
 Registry credentials remain namespace-scoped. `platform-system/ghcr-pull` authenticates operator and API Pods; `applications/ghcr-pull` authenticates managed workload Pods. The production certificate writes its generated key pair to `platform-system/control-plane-api-tls`.
@@ -1029,10 +939,7 @@ Registry credentials remain namespace-scoped. `platform-system/ghcr-pull` authen
 May include:
 
 * control-plane API
-* demo application
-* SmartEnergy dashboard
-* selected SmartEnergy API endpoints
-* protected Grafana dashboards
+* the lightweight TLS validation endpoint
 
 ### Cluster-Internal Boundary
 
@@ -1040,12 +947,9 @@ Includes:
 
 * Operator metrics
 * OpenTelemetry receivers
-* PostgreSQL
-* Redis
 * internal application Services
 * Prometheus
-* Loki
-* Tempo
+* kube-state-metrics
 * Argo CD server
 * Kubernetes API access
 
@@ -1056,9 +960,6 @@ Includes:
 * SSH
 * `kubectl`
 * Argo CD administration
-* Grafana administration
-* database administration
-* backup access
 * registry credentials
 * DNS-provider credentials
 
@@ -1198,6 +1099,23 @@ The final structure should be chosen after the main project repository is scaffo
 ---
 
 ## 32. Infrastructure Development Phases
+
+The construction roadmap is closed as of 24 July 2026:
+
+| Phase | Status | Accepted result |
+| --- | --- | --- |
+| H0 | Complete | Architecture, boundaries, and delivery sequence |
+| H1 | Complete | Hetzner VM, restricted SSH, and firewall |
+| H2 | Complete | Hardened Ubuntu host |
+| H3 | Complete | Pinned single-node K3s and private administration |
+| H4 | Complete | DNS, cert-manager, production TLS, and redirect |
+| H5 | Complete | Immutable GHCR publication and digest-pinned runtime |
+| H6 | Complete | Private restricted Argo CD and rollback |
+| H7 | Complete | Operator, API, managed demo, GitOps, and public API TLS |
+| H8 | Complete | Restricted Collector and bounded six-job Prometheus |
+
+H9–H12 below preserve the original roadmap rationale but are optional
+improvements, not unfinished baseline phases.
 
 ### Phase H0 — Planning and Decisions
 
@@ -1390,21 +1308,14 @@ COMPLETE — validated 2026-07-20
 Deliverables:
 
 * OpenTelemetry Collector
-* Grafana
-* Loki
-* Tempo
-* Prometheus or Mimir
-* dashboards
-* alert rule
+* standalone Prometheus
+* reduced kube-state-metrics
 * retention configuration
 
 Exit criteria:
 
-* logs are searchable
-* metrics are visible
-* traces are visible
-* Operator reconciliation telemetry is visible
-* application requests can be investigated
+* six accepted metrics jobs are healthy
+* Prometheus history survives Pod replacement
 * disk growth is bounded
 * access is protected
 
@@ -1421,7 +1332,7 @@ enhancements. The live evidence is recorded in
 
 ---
 
-### Phase H9 — SmartEnergy Deployment
+### Optional Improvement — SmartEnergy Deployment
 
 Deliverables:
 
@@ -1445,9 +1356,11 @@ Exit criteria:
 * telemetry is visible
 * backups are configured
 
+Current status: not implemented; not required by the closed baseline.
+
 ---
 
-### Phase H10 — Network Probe Deployment
+### Optional Improvement — Network Probe Deployment
 
 Deliverables:
 
@@ -1466,9 +1379,11 @@ Exit criteria:
 * timeouts work
 * resource usage is bounded
 
+Current status: not implemented; not required by the closed baseline.
+
 ---
 
-### Phase H11 — Backup and Recovery Validation
+### Optional Improvement — Backup and Recovery Validation
 
 Deliverables:
 
@@ -1486,9 +1401,12 @@ Exit criteria:
 * recovery steps are timed and documented
 * known recovery gaps are explicit
 
+Current status: Git reconstruction and rollback boundaries are documented;
+automated backup and a full restore exercise are not implemented.
+
 ---
 
-### Phase H12 — Public Demo Hardening
+### Optional Improvement — Public Demo Hardening
 
 Deliverables:
 
@@ -1511,11 +1429,15 @@ Exit criteria:
 * resource use is stable
 * infrastructure limitations are documented
 
+Current status: TLS, redirect, API authentication, rate limiting, immutable
+images, and exposure checks are implemented. Broader demonstration and
+resilience exercises remain optional.
+
 ---
 
-## 33. Initial Deployment Priority
+## 33. Historical Deployment Priority
 
-When time is limited, follow this order:
+The completed build followed this dependency-oriented sequence:
 
 ```text
 1. Secure VM
@@ -1527,12 +1449,10 @@ When time is limited, follow this order:
 7. Control-plane API
 8. GitOps
 9. Basic observability
-10. SmartEnergy
-11. Network probe
-12. Advanced hardening
+10. Optional application or hardening work, when justified
 ```
 
-A secure working platform demonstration is more valuable than a complete but unstable stack.
+This list explains build ordering; it is not a remaining mandatory plan.
 
 ---
 
@@ -1562,9 +1482,9 @@ These may become future design exercises or stretch implementations.
 
 ---
 
-## 35. Agent Roles
+## 35. Contributor Responsibilities
 
-A coordinated infrastructure agent team may divide work into the following roles.
+Infrastructure work may be divided into the following review responsibilities.
 
 ### Infrastructure Lead
 
@@ -1575,9 +1495,9 @@ Owns:
 * dependency ordering
 * risk review
 * completion criteria
-* coordination across agents
+* coordination across contributors and systems
 
-### Linux and Security Agent
+### Linux and Security
 
 Owns:
 
@@ -1589,7 +1509,7 @@ Owns:
 * user permissions
 * host-level security
 
-### Kubernetes Agent
+### Kubernetes
 
 Owns:
 
@@ -1602,7 +1522,7 @@ Owns:
 * cluster validation
 * upgrades
 
-### Networking and TLS Agent
+### Networking and TLS
 
 Owns:
 
@@ -1613,7 +1533,7 @@ Owns:
 * TLS
 * public exposure inventory
 
-### GitOps and CI Agent
+### GitOps and CI
 
 Owns:
 
@@ -1624,7 +1544,7 @@ Owns:
 * deployment repositories
 * rollback procedures
 
-### Observability Agent
+### Observability
 
 Owns:
 
@@ -1637,7 +1557,7 @@ Owns:
 * telemetry retention
 * incident dashboards
 
-### Database and State Agent
+### Database and State
 
 Owns:
 
@@ -1649,7 +1569,7 @@ Owns:
 * restores
 * stateful workload validation
 
-### Security Review Agent
+### Security Review
 
 Owns:
 
@@ -1661,13 +1581,14 @@ Owns:
 * public exposure verification
 * completion security report
 
-No agent should make overlapping destructive changes without coordinating through the infrastructure lead.
+Overlapping destructive changes require explicit coordination and a single
+reviewed owner.
 
 ---
 
-## 36. Agent Working Rules
+## 36. Infrastructure Change Rules
 
-Before making infrastructure changes, agents must:
+Before making infrastructure changes:
 
 1. Read this document.
 2. Read the main project context.
@@ -1678,7 +1599,7 @@ Before making infrastructure changes, agents must:
 7. Identify possible destructive consequences.
 8. Preserve existing working access.
 
-While making changes, agents must:
+While making changes:
 
 1. Work in small slices.
 2. Explain privileged commands.
@@ -1691,7 +1612,7 @@ While making changes, agents must:
 9. Validate after each significant step.
 10. Stop and report unexpected state rather than guessing destructively.
 
-Before declaring completion, agents must:
+Before declaring completion:
 
 1. Validate service health.
 2. Validate firewall exposure.
@@ -1728,7 +1649,7 @@ The following actions require explicit caution and a documented backup or recove
 * upgrading K3s
 * changing cluster network ranges
 
-Agents should prefer reversible changes.
+Prefer reversible changes.
 
 A destructive operation should state:
 
@@ -1746,75 +1667,11 @@ Validation procedure
 
 ## 38. Infrastructure Inventory
 
-The infrastructure conversation should maintain an inventory similar to:
-
-```text
-Provider:
-Hetzner Cloud
-
-Project:
-TBD
-
-Server name:
-TBD
-
-Server type:
-TBD
-
-Region:
-TBD
-
-Operating system:
-TBD
-
-Public IPv4:
-REDACTED IN PUBLIC DOCS
-
-Public IPv6:
-REDACTED OR DOCUMENTED SAFELY
-
-Administrative user:
-TBD
-
-SSH source restrictions:
-TBD
-
-K3s version:
-TBD
-
-Kubernetes version:
-TBD
-
-Domain:
-TBD
-
-DNS provider:
-TBD
-
-Ingress controller:
-Traefik
-
-Certificate manager:
-cert-manager
-
-Container registry:
-GHCR
-
-GitOps:
-Argo CD
-
-Storage class:
-TBD
-
-Backup location:
-TBD
-```
-
-Sensitive values must not be added to a public repository.
-
-A sanitised inventory may be committed.
-
-A private inventory may be maintained separately.
+The current sanitized inventory is maintained in
+[the build guide](cloud-native-service-control-plane-build-guide.md#4-current-resource-inventory)
+and the [project closeout](project-closeout.md). Sensitive values, Secret
+contents, kubeconfigs, and private keys remain outside the repository. Private
+recovery metadata may be maintained separately.
 
 ---
 
@@ -2007,7 +1864,7 @@ The public environment may remain continuously available during interview prepar
 
 ---
 
-## 44. Production-Hardening Roadmap
+## 44. Optional Production-Hardening Considerations
 
 The project documentation should explain how the environment would evolve beyond the portfolio deployment.
 
@@ -2035,13 +1892,15 @@ Potential production improvements:
 * multi-tenancy
 * separate staging and production clusters
 
-These are future improvements, not current claims.
+These are optional improvements, not current claims or baseline completion
+requirements. Their consolidated status and prerequisites are in
+[`optional-improvements.md`](optional-improvements.md).
 
 ---
 
 ## 45. Multi-Cluster and Air-Gapped Interview Scope
 
-The infrastructure team may later prepare design documentation for:
+Possible design exercises include:
 
 ### Multi-Cluster
 
@@ -2073,59 +1932,20 @@ No implementation should be represented as complete unless it has been validated
 
 ---
 
-## 46. Chat Separation
+## 46. Documentation and Workstream Boundaries
 
-### Master Interview Preparation Chat
+- Application source, controllers, APIs, tests, and image workflows belong to
+  their repository packages.
+- Hetzner, Ubuntu, K3s, firewall, DNS, TLS, storage, and GitOps decisions
+  belong in this infrastructure context and focused runbooks.
+- Live evidence belongs in dated closeout or proof records.
+- Day-to-day commands belong in the operator guide.
+- New application requirements belong in the application deployment guide.
+- Optional ideas belong in the optional-improvements register until a bounded
+  implementation is accepted.
 
-Owns:
-
-* role priorities
-* overall schedule
-* project prioritisation
-* interview strategy
-* cross-chat decisions
-
-### Project Development Chat
-
-Owns:
-
-* Go code
-* Operator
-* REST API
-* demo service
-* network probe
-* SmartEnergy Kubernetes packaging
-* tests
-* application documentation
-
-### Hetzner Infrastructure Chat
-
-Owns:
-
-* Hetzner project
-* VM provisioning
-* OS hardening
-* K3s
-* firewall
-* DNS
-* TLS
-* storage
-* GitOps deployment
-* backups
-* public exposure
-* infrastructure runbooks
-
-### Interview Preparation Chat
-
-Owns:
-
-* technical questions
-* system-design practice
-* behavioural preparation
-* live project explanation
-* troubleshooting exercises
-
-Important deployment decisions made in the infrastructure chat should be reflected in this document and, where architecturally relevant, in the main project context.
+Material deployment decisions should be reflected in the relevant
+authoritative document rather than existing only in transient working notes.
 
 ---
 
@@ -2149,7 +1969,8 @@ The following decisions are currently authoritative:
 * GitHub Container Registry is the initial image registry.
 * Argo CD is the intended GitOps tool.
 * Local-path storage is acceptable initially if its limitations are documented.
-* Backups and restore instructions are required.
+* Automated backup and full restore testing remain optional
+  production-hardening work and must not be implied by the current baseline.
 * The observability stack must use bounded retention.
 * The infrastructure will be built incrementally.
 * Local validation should precede public deployment.
@@ -2163,9 +1984,10 @@ The following decisions are currently authoritative:
 
 ---
 
-## 48. Current Open Decisions
+## 48. Decisions for Optional Improvements
 
-The following decisions remain open for later phases:
+The following decisions are needed only if the corresponding optional work is
+accepted:
 
 * backup destination
 * longer-term Secret-management mechanism beyond manually managed Kubernetes Secrets
@@ -2175,23 +1997,26 @@ The following decisions remain open for later phases:
 * VM snapshot policy
 * whether additional Hetzner volumes are required
 
-Open decisions should be resolved at the phase where they become necessary.
+Resolve them within the bounded improvement where they become necessary.
 
 The simplest safe and reversible option should be preferred.
 
 ---
 
-## 49. Immediate Next Infrastructure Step
+## 49. Baseline Closeout
 
-The next infrastructure phase is:
+The implemented infrastructure baseline is complete:
 
 ```text
-Phase H9 — Deploy SmartEnergy through the validated platform.
+H1–H8 COMPLETE — closed 24 July 2026
 ```
 
-Before enabling H9, capture a fresh resource baseline, define the data
-persistence and backup boundary, and preserve the established immutable-image,
-restricted GitOps, and namespace-isolation controls.
+There is no mandatory H9. Routine operation follows the
+[operator guide](operator-guide.md). A new application follows the
+[application deployment guide](application-deployment-guide.md). Any
+[optional improvement](optional-improvements.md) starts with a fresh resource
+baseline and preserves immutable images, restricted GitOps, namespace
+isolation, and explicit persistence boundaries.
 
 ---
 
@@ -2207,10 +2032,10 @@ The Hetzner environment is successful when the developer can demonstrate and exp
 * how applications are delivered through GitOps
 * how container images are versioned
 * how the Operator and API are deployed
-* how stateful services persist data
-* how logs, metrics, and traces are collected
+* how the current Prometheus state persists and what local-path cannot provide
+* how metrics are collected and why logs/traces are outside the accepted scope
 * how administrative systems remain protected
-* how backups and recovery work
+* what Git can reconstruct and where backup/recovery limitations remain
 * how failures are diagnosed
 * how the single-node design differs from production high availability
 * how the architecture could evolve toward multi-cluster and air-gapped deployments

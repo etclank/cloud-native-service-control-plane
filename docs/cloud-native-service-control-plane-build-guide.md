@@ -25,7 +25,9 @@ The guide currently covers:
 - H8.1–H8.4 — observability design, telemetry foundations, the validated
   OpenTelemetry Collector boundary, and bounded Prometheus.
 
-Later phases should be appended only after implementation and validation. Commands are grouped by where they run.
+The accepted construction roadmap ends at H8. Optional improvements may add
+their own implementation records after validation, but they are not required
+to complete this baseline. Commands are grouped by where they run.
 
 | Marker | Run the command in |
 | --- | --- |
@@ -55,7 +57,7 @@ Safe items that may be documented include public hostnames, public IP addresses,
 
 The current public IPv4 address is `142.132.178.45`. A rebuilt VM may receive a different address, so DNS and the SSH alias must be updated after reconstruction.
 
-## 3. Current Architecture Through H7
+## 3. Implemented Architecture Through H8
 
 ```text
                                   Public Internet
@@ -134,7 +136,9 @@ Only ports 80 and 443 are public application endpoints. Port 22 is restricted to
 | Local kubeconfig | `~/.kube/portfolio-k3s.yaml` |
 | Local tunnel port | `127.0.0.1:16443` |
 
-No extra Hetzner volume, placement group, or highly available storage is currently used. Backups will be designed and validated in H11.
+No extra Hetzner volume, placement group, or highly available storage is
+currently used. Automated backup and full disaster-recovery exercises are
+optional production-hardening work.
 
 ---
 
@@ -233,7 +237,7 @@ Networking: public IPv4 and IPv6
 SSH key: wsl-hetzner-portfolio-2026
 Firewall: portfolio-edge
 Additional volume: none
-Backups: deferred until the backup design phase
+Backups: no automated backup system in the current baseline
 Placement group: none for a single-node environment
 ```
 
@@ -2501,16 +2505,14 @@ kubectl get events -n NAMESPACE --sort-by='.lastTimestamp'
 | H6 | Complete | Private Argo CD bootstrap, restricted GitOps, and tested rollback |
 | H7 | Complete | Operator, authenticated API, managed workload, immutable images, TLS, and lifecycle validation |
 | H8 | Complete | Restricted Collector and bounded six-job Prometheus deployment validated |
-| H9 | Not started | SmartEnergy deployment |
-| H10 | Not started | Network probe deployment |
-| H11 | Not started | Backup and recovery validation |
-| H12 | Not started | Public demo hardening |
 
 ---
 
-# Template for Appending a Future Phase
+# Recording an Optional Improvement
 
-Each future phase should add:
+The baseline is complete through H8. If an
+[optional improvement](optional-improvements.md) is later implemented, its
+record should add:
 
 ```text
 Phase objective

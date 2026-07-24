@@ -2,21 +2,25 @@
 
 A portfolio platform for building, deploying, operating, and observing Kubernetes-managed services with Go, Kubernetes operators, GitOps, and OpenTelemetry.
 
-> Current status: H7 platform deployment and H8.3 Collector foundation complete. The Kubebuilder operator, authenticated control-plane API, managed `demo-http` workload, immutable GHCR images, restricted GitOps delivery, production API TLS, and a private, network-restricted OpenTelemetry Collector are live. Later H8 backends and workload OTLP export remain deferred.
+> Current status: the implemented H1–H8 platform baseline is complete for the
+> current portfolio scope as of 24 July 2026. The operator, authenticated API,
+> managed demo, immutable delivery, restricted GitOps, production TLS, private
+> Collector, persistent Prometheus, and six accepted scrape jobs are live.
+> Further expansion is optional.
 
 ## Project Purpose
 
-This project demonstrates an end-to-end cloud-native platform rather than a single isolated application. Its intended capabilities include:
+This project demonstrates an end-to-end cloud-native platform rather than a
+single isolated application. The implemented baseline includes:
 
 - a Go Kubernetes Operator and `ManagedService` custom resource;
 - a Go control-plane API;
 - managed Go demonstration workloads;
 - GitHub Actions and GitHub Container Registry;
 - GitOps delivery through Argo CD;
-- metrics, logs, and traces through an OpenTelemetry-based observability stack;
-- a synthetic network probe;
-- deployment of the existing SmartEnergy API and dashboard;
-- documented security, backup, recovery, and operational procedures.
+- shared telemetry instrumentation and a private OpenTelemetry Collector;
+- persistent Prometheus metrics for six bounded targets;
+- documented security, rollback, recovery boundaries, and operations.
 
 The platform is designed as:
 
@@ -51,9 +55,11 @@ The implemented environment currently provides:
 - `ManagedService` reconciliation into owned Deployments and ClusterIP Services;
 - a public, bearer-authenticated control-plane API at `https://api.platform.eoghanclancy.eu`;
 - production Let's Encrypt TLS, permanent HTTPS redirection, and Traefik rate limiting;
-- digest-pinned operator, API, and `demo-http` workloads.
+- digest-pinned operator, API, and `demo-http` workloads;
 - a GitOps-managed OpenTelemetry Collector with restricted OTLP ingress and a
-  `nop` exporter only.
+  `nop` exporter only;
+- bounded Prometheus and reduced kube-state-metrics with a persistent 3Gi
+  local-path volume and six accepted scrape jobs.
 
 Current validation endpoint:
 
@@ -92,7 +98,7 @@ https://api.platform.eoghanclancy.eu
            +-------------------------+-------------------------+
            |                         |                         |
            v                         v                         v
-   Control-plane API       Managed applications       Protected dashboards
+   Control-plane API       Managed applications       Private observability
            |                         |                         |
            +-------------------------+-------------------------+
                                      |
@@ -104,14 +110,9 @@ https://api.platform.eoghanclancy.eu
  Kubernetes Operator      OpenTelemetry Collector              Argo CD
        |                             |                             |
        v                             v                             v
- ManagedService CRs          Logs / metrics / traces      GitOps reconciliation
-                                     |
-                       +-------------+-------------+
-                       |             |             |
-                       v             v             v
-                     Loki          Tempo       Prometheus
-                                     |
-                                  Grafana
+ ManagedService CRs       Collector + Prometheus          GitOps reconciliation
+                                 |
+                         kube-state-metrics
 
 
 Administrative path:
@@ -127,10 +128,9 @@ SSH tunnel over restricted TCP 22
 private K3s Kubernetes API
 ```
 
-The operator, API, Argo CD, managed `demo-http` path, bounded OpenTelemetry
-Collector, Prometheus, and reduced kube-state-metrics are implemented. Loki,
-Tempo, Grafana, workload OTLP export, SmartEnergy, and the synthetic probe are
-optional later work.
+Loki, Tempo, Grafana, workload OTLP export, SmartEnergy, and synthetic probes
+are not implemented in the current baseline. They are
+[optional improvements](docs/optional-improvements.md).
 
 ## Infrastructure Baseline
 
@@ -148,7 +148,9 @@ optional later work.
 | Public application ports | TCP 80 and 443 |
 | Administrative access | Restricted SSH and local API tunnel |
 
-The server is intentionally small for the bootstrap and low-traffic portfolio workload. It can be resized when later phases introduce memory-heavy observability and data services.
+The server is intentionally small and suitable only for the measured,
+low-traffic portfolio workload. Any additional application or memory-heavy
+service requires a fresh capacity review and may require resizing.
 
 ## Platform Components
 
@@ -184,7 +186,11 @@ API request
   -> internal endpoint and status
 ```
 
-The live `portfolio-demo` resource reports `Available=True`, `readyReplicas=1`, and returns its configured message through the internal Service. Its telemetry instrumentation is present, but production OTLP export remains disabled pending a separately reviewed later H8 slice.
+The live `portfolio-demo` resource reports `Available=True`,
+`readyReplicas=1`, and returns its configured message through the internal
+Service. Its telemetry instrumentation and an authorized Collector network
+identity are present, but production OTLP export is deliberately disabled in
+the accepted baseline.
 
 ### Observability
 
@@ -196,7 +202,7 @@ least-privilege discovery RBAC, restricted NetworkPolicies, and exactly six
 healthy private scrape jobs. Its PVC-backed recovery and target rediscovery
 were validated. No production workload currently exports OTLP.
 
-Future post-H8 observability enhancements may include:
+Optional observability improvements include:
 
 - Loki for logs;
 - Tempo for traces;
@@ -207,9 +213,12 @@ H8 is complete. The authoritative evidence is in
 [`docs/h8-observability-closeout.md`](docs/h8-observability-closeout.md).
 No additional backend is an H8 acceptance requirement.
 
-### SmartEnergy
+### Application Expansion
 
-The existing SmartEnergy FastAPI, PostgreSQL, Redis, and dashboard project will be deployed as a second workload. It will demonstrate that the platform can host both Go-native components and an existing Python application stack.
+New stateless applications can be added through the documented GitOps
+Kustomize route. The existing SmartEnergy FastAPI, PostgreSQL, Redis, and
+dashboard stack is not deployed; it remains an optional capacity and
+state-management exercise.
 
 ## Repository Structure
 
@@ -225,6 +234,9 @@ cloud-native-service-control-plane/
 ├── deploy/
 ├── docs/
 │   ├── cloud-native-service-control-plane-build-guide.md
+│   ├── application-deployment-guide.md
+│   ├── project-closeout.md
+│   ├── optional-improvements.md
 │   ├── h7-platform-deployment-closeout.md
 │   ├── infrastructure-context.md
 │   └── operator-guide.md
@@ -241,29 +253,25 @@ cloud-native-service-control-plane/
 └── README.md
 ```
 
-Directories for components that have not yet been implemented may be introduced by the development workflow rather than as empty placeholders.
-
 ## Documentation
 
 | Document | Purpose |
 | --- | --- |
+| [`docs/project-closeout.md`](docs/project-closeout.md) | Authoritative completion definition, accepted capability matrix, and limitations |
+| [`docs/application-deployment-guide.md`](docs/application-deployment-guide.md) | Supported ManagedService and recommended GitOps application onboarding paths |
+| [`docs/optional-improvements.md`](docs/optional-improvements.md) | Non-mandatory platform, observability, resilience, and application ideas |
 | [`docs/cloud-native-service-control-plane-build-guide.md`](docs/cloud-native-service-control-plane-build-guide.md) | Educational reconstruction guide with tested H-phase commands |
 | [`docs/operator-guide.md`](docs/operator-guide.md) | Daily SSH, tunnel, Kubernetes, and troubleshooting runbook |
-| [`docs/infrastructure-context.md`](docs/infrastructure-context.md) | Authoritative infrastructure requirements and phase model |
+| [`docs/infrastructure-context.md`](docs/infrastructure-context.md) | Infrastructure decisions, constraints, completed H1–H8 roadmap, and historical rationale |
 | [`docs/h7-platform-deployment-closeout.md`](docs/h7-platform-deployment-closeout.md) | H7 implementation record, validation evidence, security boundary, and exit criteria |
 | [`docs/h8-collector-deployment-closeout.md`](docs/h8-collector-deployment-closeout.md) | H8.3D Collector deployment, health, NetworkPolicy, and Gate 3V-R evidence |
 | [`docs/h8-observability-closeout.md`](docs/h8-observability-closeout.md) | H8.4 live Prometheus, persistence, target-health, security, rollback, and completion evidence |
-| [`docs/h8-observability-design.md`](docs/h8-observability-design.md) | H8 architecture, resource budget, retention, security, and ordered implementation roadmap |
+| [`docs/h8-observability-design.md`](docs/h8-observability-design.md) | Historical H8 architecture and capacity design, with the final accepted scope identified |
 | [`docs/argocd-sync-rollback-runbook.md`](docs/argocd-sync-rollback-runbook.md) | Manual Argo CD synchronization and rollback procedure |
 
-Planned documentation includes:
-
-- complete system explanation;
-- learning and interview revision guide;
-- architecture decision records;
-- deployment and rollback runbooks;
-- certificate, backup, and recovery procedures;
-- final threat model and public-demo checklist.
+The closeout record links the point-in-time live evidence. Historical design
+and proof documents remain in `docs/` to preserve decisions and validation
+context.
 
 ## Administrative Quick Start
 
@@ -309,10 +317,10 @@ See [`docs/operator-guide.md`](docs/operator-guide.md) for the complete procedur
 | H6 — Argo CD bootstrap | Complete | Private Argo CD, restricted projects, manual synchronization, tested rollback |
 | H7 — Platform deployment | Complete | Operator, authenticated API, managed workload, immutable images, GitOps, TLS |
 | H8 — Observability deployment | Complete | Restricted Collector and bounded six-job Prometheus deployment validated |
-| H9 — SmartEnergy deployment | Not started | API, dashboard, PostgreSQL, and Redis |
-| H10 — Network probe | Not started | Synthetic connectivity and telemetry workload |
-| H11 — Backup and recovery | Not started | Tested backup and restoration procedures |
-| H12 — Public demo hardening | Not started | Final exposure, security, reliability, and demonstration checks |
+
+The baseline closes after H8. Former H9–H12 ideas are retained as
+[optional improvements](docs/optional-improvements.md); there is no mandatory
+next construction phase.
 
 ## Delivery Principles
 
@@ -326,7 +334,8 @@ Infrastructure is introduced in small slices. Each slice must demonstrate real b
 
 ### GitOps-oriented operation
 
-After bootstrap, deployment configuration will be version controlled and reconciled through Argo CD rather than maintained as undocumented manual state.
+Deployment configuration is version controlled and reconciled through Argo CD
+rather than maintained as undocumented manual state.
 
 ### Minimal public exposure
 
@@ -334,11 +343,14 @@ Only approved application endpoints use public ingress. Kubernetes, databases, t
 
 ### Immutable deployment identity
 
-Container images will be traceable to Git commits. Kubernetes deployments will use immutable image digests rather than relying on a mutable `latest` tag.
+Container images are traceable to Git commits. Kubernetes deployments use
+immutable image digests rather than a mutable `latest` tag.
 
 ### Security before convenience
 
-Credentials remain outside Git. GitHub Actions will use narrowly scoped workflow tokens, and the cluster will avoid long-lived registry credentials when public images permit anonymous pulls.
+Credentials remain outside Git. GitHub Actions uses narrowly scoped workflow
+tokens; Kubernetes registry credentials are namespace-scoped and provisioned
+outside the repository.
 
 ## Security Posture
 
@@ -376,7 +388,9 @@ The initial platform uses one VM and one Kubernetes node. It does not provide:
 - zero-downtime node maintenance;
 - production service-level guarantees.
 
-These are conscious cost and complexity trade-offs for a portfolio environment. The project documentation will continue to distinguish demonstrated behavior from production-grade claims.
+These are conscious cost and complexity trade-offs. See
+[optional improvements](docs/optional-improvements.md) for possible
+production-hardening work.
 
 ## Current Validation
 
@@ -392,6 +406,14 @@ H7 live validation established that:
 - deletion removes the custom resource and its owned Deployment and Service;
 - the external scan exposes only ports 22, 80, and 443 from the tested source;
 - the node baseline was approximately 6% CPU and 66% memory.
+
+H8 live validation additionally established that the Collector, Prometheus,
+and reduced kube-state-metrics were Ready with zero restarts; exactly six
+accepted Prometheus jobs were healthy; the 3Gi PVC was Bound; Prometheus
+history and target discovery survived Pod recreation; and kubelet/cAdvisor
+access and node RBAC remained absent. See the
+[H8 closeout](docs/h8-observability-closeout.md) for exact immutable revisions,
+resource identities, and point-in-time measurements.
 
 Safe public checks that do not require a bearer token:
 

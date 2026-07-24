@@ -3,7 +3,8 @@
 > Status: H8 operating guide, version 1.1
 > Last updated: 24 July 2026
 > Environment: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s
-> H8 is complete; SmartEnergy, backup, and later roadmap phases remain future work.
+> The H1–H8 baseline is complete for the current portfolio scope. Expansion
+> beyond it is optional.
 
 ## 1. Purpose
 
@@ -21,7 +22,10 @@ This is the day-to-day connection and operating guide for the portfolio environm
 - recognize common connection failures;
 - avoid exposing or committing administrative credentials.
 
-It is an operator runbook, not the full architectural explanation. A separate system explanation and learning guide will be prepared when the platform is complete.
+It is an operator runbook, not the full implementation history. See the
+[project closeout](project-closeout.md) for the accepted scope and
+[build guide](cloud-native-service-control-plane-build-guide.md) for the
+reconstruction path.
 
 ## 2. Current Environment
 
@@ -51,46 +55,24 @@ It is an operator runbook, not the full architectural explanation. A separate sy
 
 The server is intentionally a portfolio and learning environment. It is not a highly available production cluster.
 
-## 3. Suggested Local Documentation Layout
+## 3. Repository Documentation
 
-Create the project workspace under `~/projects`:
+The maintained documentation is organized as:
 
 ```text
 ~/projects/cloud-native-service-control-plane/
 ├── README.md
 ├── docs/
-│   ├── general-context.md
 │   ├── infrastructure-context.md
 │   ├── operator-guide.md
 │   ├── argocd-sync-rollback-runbook.md
-│   ├── system-explanation.md
-│   ├── learning-guide.md
-│   ├── architecture/
-│   ├── decisions/
-│   └── runbooks/
-├── infrastructure/
-├── kubernetes/
-└── applications/
-```
-
-Recommended initial files:
-
-- `docs/infrastructure-context.md`: the original project and infrastructure specification.
-- `docs/operator-guide.md`: this document.
-- `docs/argocd-sync-rollback-runbook.md`: exact synchronization, diagnosis, rollback, and Git reconciliation procedure.
-- `docs/system-explanation.md`: how traffic, Kubernetes, storage, security, GitOps, and observability work together. Complete later.
-- `docs/learning-guide.md`: concepts, commands, interview questions, and troubleshooting exercises. Complete later.
-- `docs/decisions/`: short architecture decision records for important choices.
-- `docs/runbooks/`: focused operational procedures such as certificate renewal or restoring K3s.
-
-Create the folders from WSL:
-
-```bash
-cd ~/projects
-
-mkdir -p cloud-native-service-control-plane/{docs/{architecture,decisions,runbooks},infrastructure,kubernetes,applications}
-
-cd cloud-native-service-control-plane
+│   ├── application-deployment-guide.md
+│   ├── project-closeout.md
+│   ├── optional-improvements.md
+│   └── h8-observability-closeout.md
+├── config/
+├── deploy/
+└── kubernetes/
 ```
 
 Do not place private SSH keys, kubeconfig files, passwords, API tokens, certificate private keys, or unencrypted backups inside this project tree.
@@ -499,7 +481,7 @@ Intended public exposure:
 | 8080/TCP | Filtered | Administrative/application service |
 | 9090/TCP | Filtered | Prometheus |
 
-## 10. Operate the H7 Platform
+## 10. Operate the Platform
 
 ### 10.1 Check GitOps and workload health
 
@@ -1020,29 +1002,15 @@ Completed:
 - tested Prometheus Pod recreation, retained TSDB history, and stable target
   rediscovery.
 
-H7 and H8 are complete. Workload OTLP enablement and additional observability
-backends remain separately reviewed later work. The authoritative Collector
-validation record is
+H1–H8 are complete for the current portfolio scope. Workload OTLP enablement,
+additional observability backends, SmartEnergy, and backup automation are
+optional improvements rather than mandatory later phases. The authoritative
+Collector validation record is
 [`h8-collector-deployment-closeout.md`](h8-collector-deployment-closeout.md).
 The Prometheus and H8 closeout record is
 [`h8-observability-closeout.md`](h8-observability-closeout.md).
-Optional post-H8 work may add further observability backends, persistent data
-services, backup procedures, and roadmap workloads.
-
-## 14. Planned Final Documentation
-
-At project completion, update this guide with:
-
-- final hostnames and service ownership;
-- final namespaces and deployed components;
-- routine start, stop, upgrade, and maintenance procedures;
-- certificate renewal checks;
-- Argo CD access and reconciliation procedures;
-- observability access and alert diagnosis;
-- backup and restoration procedures;
-- incident and resource-pressure runbooks;
-- server resize procedure and post-resize validation;
-- exact recovery steps for rebuilding the VM and K3s cluster;
-- links to architecture decisions and application documentation.
-
-The final `system-explanation.md` should explain the complete request, deployment, storage, telemetry, and GitOps flows. The final `learning-guide.md` should translate the implementation into concepts, exercises, likely interview questions, and concise explanations of design trade-offs.
+The accepted baseline and limitations are recorded in
+[`project-closeout.md`](project-closeout.md). New applications should follow
+[`application-deployment-guide.md`](application-deployment-guide.md).
+Potential expansion is consolidated in
+[`optional-improvements.md`](optional-improvements.md).
