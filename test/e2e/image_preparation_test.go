@@ -20,8 +20,11 @@ limitations under the License.
 package e2e
 
 import (
+	"archive/tar"
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
-	"os"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -35,7 +38,7 @@ func TestDemoHTTPImageCommandsArePortable(t *testing.T) {
 		"demo-http-e2e-test",
 	)
 	paths := newDemoHTTPImagePaths(temporaryDirectory)
-	for _, path := range []string{paths.metadataPath, paths.archivePath} {
+	for _, path := range []string{paths.archivePath} {
 		relativePath, err := filepath.Rel(paths.temporaryDirectory, path)
 		if err != nil {
 			t.Fatalf("resolve temporary path: %v", err)
@@ -52,7 +55,6 @@ func TestDemoHTTPImageCommandsArePortable(t *testing.T) {
 		"--provenance=false",
 		"--sbom=false",
 		"--build-arg SOURCE_DATE_EPOCH=0",
-		"--metadata-file " + paths.metadataPath,
 		"--load",
 		"--tag " + demoHTTPImageTag,
 		"--file images/demo-http/Dockerfile",
@@ -61,7 +63,12 @@ func TestDemoHTTPImageCommandsArePortable(t *testing.T) {
 			t.Errorf("build arguments omit %q: %s", required, buildArguments)
 		}
 	}
-	for _, forbidden := range []string{"type=oci", "--output", "--push"} {
+	for _, forbidden := range []string{
+		"type=oci",
+		"--metadata-file",
+		"--output",
+		"--push",
+	} {
 		if strings.Contains(buildArguments, forbidden) {
 			t.Errorf("build arguments contain %q: %s", forbidden, buildArguments)
 		}
@@ -85,163 +92,115 @@ func TestDemoHTTPImageCommandsArePortable(t *testing.T) {
 	if !strings.Contains(proofArguments, "--image-pull-policy=Never") {
 		t.Errorf("proof Pod does not forbid registry pulls: %s", proofArguments)
 	}
-}
 
-func TestImageDigestFromBuildMetadata(t *testing.T) {
-	imageDigest := "sha256:" + strings.Repeat("a", 64)
-	configDigest := "sha256:" + strings.Repeat("b", 64)
-	validMetadata := func() buildMetadata {
-		return buildMetadata{
-			ConfigDigest: configDigest,
-			Digest:       imageDigest,
-			Descriptor: &buildDescriptor{
-				MediaType: "application/vnd.docker.distribution.manifest.v2+json",
-				Digest:    imageDigest,
-				Platform: buildPlatform{
-					OS:           "linux",
-					Architecture: "amd64",
-				},
-			},
+	containerdArguments := strings.Join(
+		containerdImageArchiveCommand("kind-node", demoHTTPImageTag).Args,
+		" ",
+	)
+	for _, required := range []string{
+		"docker exec kind-node",
+		"ctr -n k8s.io images export",
+		"--local",
+		"--skip-manifest-json",
+		"- " + demoHTTPImageTag,
+	} {
+		if !strings.Contains(containerdArguments, required) {
+			t.Errorf(
+				"containerd export arguments omit %q: %s",
+				required,
+				containerdArguments,
+			)
 		}
 	}
+}
 
-	tests := []struct {
-		name     string
-		mutate   func(*buildMetadata)
-		contents []byte
-		wantErr  string
-	}{
-		{name: "complete matching descriptor"},
-		{
-			name: "CI digest-only metadata",
-			contents: []byte(
-				`{"containerimage.digest":` +
-					`"sha256:bbfbd9744e99fd0f74ef01d29068230595ce86c4f58d231edf781b29959d93f4"}`,
-			),
-		},
-		{
-			name: "descriptor omitted with config digest",
-			mutate: func(metadata *buildMetadata) {
-				metadata.Descriptor = nil
-			},
-		},
-		{name: "malformed JSON", contents: []byte("{"), wantErr: "decode Buildx metadata"},
-		{
-			name:    "missing image digest",
-			mutate:  func(metadata *buildMetadata) { metadata.Digest = "" },
-			wantErr: "invalid image digest",
-		},
-		{
-			name: "malformed image digest",
-			mutate: func(metadata *buildMetadata) {
-				metadata.Digest = "sha256:abc"
-			},
-			wantErr: "invalid image digest",
-		},
-		{
-			name: "non-sha256 image digest",
-			mutate: func(metadata *buildMetadata) {
-				metadata.Digest = "sha512:" + strings.Repeat("a", 64)
-			},
-			wantErr: "invalid image digest",
-		},
-		{
-			name: "descriptor without digest",
-			mutate: func(metadata *buildMetadata) {
-				metadata.Descriptor.Digest = ""
-			},
-			wantErr: "invalid descriptor digest",
-		},
-		{
-			name: "descriptor mismatch",
-			mutate: func(metadata *buildMetadata) {
-				metadata.Descriptor.Digest = "sha256:" + strings.Repeat("c", 64)
-			},
-			wantErr: "does not match image digest",
-		},
-		{
-			name: "malformed descriptor digest",
-			mutate: func(metadata *buildMetadata) {
-				metadata.Descriptor.Digest = "sha256:abc"
-			},
-			wantErr: "invalid descriptor digest",
-		},
-		{
-			name: "config digest without manifest digest",
-			contents: []byte(
-				`{"containerimage.config.digest":"` + configDigest + `"}`,
-			),
-			wantErr: "invalid image digest",
-		},
-		{
-			name: "manifest digest equal to config digest",
-			mutate: func(metadata *buildMetadata) {
-				metadata.ConfigDigest = imageDigest
-			},
-			wantErr: "equals its config digest",
-		},
-		{
-			name: "malformed config digest",
-			mutate: func(metadata *buildMetadata) {
-				metadata.ConfigDigest = "sha256:abc"
-			},
-			wantErr: "invalid config digest",
-		},
-		{
-			name: "wrong platform",
-			mutate: func(metadata *buildMetadata) {
-				metadata.Descriptor.Platform.Architecture = "arm64"
-			},
-			wantErr: "want linux/amd64",
-		},
+func TestRuntimeImageIdentityFromArchive(t *testing.T) {
+	archive, expected := validRuntimeImageArchive(t, demoHTTPImageTag)
+	identity, err := runtimeImageIdentityFromArchive(
+		archive,
+		demoHTTPImageTag,
+	)
+	if err != nil {
+		t.Fatalf("parse valid containerd archive: %v", err)
+	}
+	if identity != expected {
+		t.Errorf("runtime identity = %#v, want %#v", identity, expected)
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			metadata := validMetadata()
-			if test.mutate != nil {
-				test.mutate(&metadata)
-			}
-			contents := test.contents
-			if contents == nil {
-				var err error
-				contents, err = json.Marshal(metadata)
-				if err != nil {
-					t.Fatalf("marshal metadata: %v", err)
-				}
-			}
-
-			metadataPath := filepath.Join(t.TempDir(), "metadata.json")
-			if err := os.WriteFile(metadataPath, contents, 0o600); err != nil {
-				t.Fatalf("write metadata: %v", err)
-			}
-			digest, err := imageDigestFromBuildMetadata(metadataPath)
-			if test.wantErr == "" {
-				if err != nil {
-					t.Fatalf("parse valid metadata: %v", err)
-				}
-				wantDigest := imageDigest
-				if test.name == "CI digest-only metadata" {
-					wantDigest =
-						"sha256:bbfbd9744e99fd0f74ef01d29068230595ce86c4f58d231edf781b29959d93f4"
-				}
-				if digest != wantDigest {
-					t.Errorf("image digest = %q, want %q", digest, wantDigest)
-				}
-				return
-			}
-			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
-				t.Errorf("metadata error = %v, want containing %q", err, test.wantErr)
-			}
-		})
+	canonicalImage := demoHTTPImageRepository + "@" + identity.TargetDigest
+	canonicalArchive, canonicalExpected := validRuntimeImageArchive(
+		t,
+		canonicalImage,
+	)
+	canonicalIdentity, err := runtimeImageIdentityFromArchive(
+		canonicalArchive,
+		canonicalImage,
+	)
+	if err != nil {
+		t.Fatalf("parse canonical containerd archive: %v", err)
 	}
-
-	t.Run("missing file", func(t *testing.T) {
-		_, err := imageDigestFromBuildMetadata(
-			filepath.Join(t.TempDir(), "missing.json"),
+	if canonicalIdentity != canonicalExpected ||
+		canonicalIdentity != identity {
+		t.Errorf(
+			"canonical identity = %#v, want %#v",
+			canonicalIdentity,
+			identity,
 		)
-		if err == nil || !strings.Contains(err.Error(), "read Buildx metadata") {
-			t.Errorf("missing metadata error = %v", err)
+	}
+}
+
+func TestHostedBuildxConfigIdentityCannotDefineWorkloadDigest(t *testing.T) {
+	configIdentity := "sha256:" + strings.Repeat("f", 64)
+	hostedMetadata := map[string]string{
+		"containerimage.digest":        configIdentity,
+		"containerimage.config.digest": configIdentity,
+	}
+	metadataContents := mustJSON(t, hostedMetadata)
+	if !bytes.Contains(metadataContents, []byte(configIdentity)) {
+		t.Fatal("hosted Buildx equality fixture does not contain its config identity")
+	}
+
+	archive, _ := validRuntimeImageArchive(t, demoHTTPImageTag)
+	identity, err := runtimeImageIdentityFromArchive(
+		archive,
+		demoHTTPImageTag,
+	)
+	if err != nil {
+		t.Fatalf("derive runtime identity: %v", err)
+	}
+	if identity.TargetDigest == hostedMetadata["containerimage.digest"] {
+		t.Error("runtime identity was derived from Buildx config metadata")
+	}
+	buildArguments := strings.Join(
+		demoHTTPBuildCommand(
+			newDemoHTTPImagePaths(t.TempDir()),
+		).Args,
+		" ",
+	)
+	if strings.Contains(buildArguments, "--metadata-file") {
+		t.Errorf("Buildx metadata remains in the runtime identity path: %s", buildArguments)
+	}
+}
+
+func TestRuntimeImageIdentityRejectsMalformedStructuredOutput(t *testing.T) {
+	t.Run("malformed tar", func(t *testing.T) {
+		_, err := runtimeImageIdentityFromArchive(
+			[]byte("not a tar archive"),
+			demoHTTPImageTag,
+		)
+		if err == nil {
+			t.Fatal("malformed containerd archive was accepted")
+		}
+	})
+
+	t.Run("missing image target", func(t *testing.T) {
+		archive, _ := validRuntimeImageArchive(t, "example.com/other:e2e")
+		_, err := runtimeImageIdentityFromArchive(
+			archive,
+			demoHTTPImageTag,
+		)
+		if err == nil || !strings.Contains(err.Error(), "0 targets") {
+			t.Errorf("missing target error = %v", err)
 		}
 	})
 }
@@ -265,21 +224,304 @@ func TestDemoImageCommandErrorIncludesStderr(t *testing.T) {
 	}
 }
 
-func TestContainerdImageTargetMatches(t *testing.T) {
-	image := "example.com/demo-http@sha256:" + strings.Repeat("a", 64)
-	digest := "sha256:" + strings.Repeat("a", 64)
-	output := "REF TYPE DIGEST SIZE PLATFORMS LABELS\n" +
-		image + " application/vnd.docker.distribution.manifest.v2+json " +
-		digest + " 6.2MiB linux/amd64 managed\n"
+func TestContainerdExportCommandErrorIncludesStderr(t *testing.T) {
+	command := exec.Command(
+		"sh", "-c",
+		"printf structured-containerd-stderr >&2; exit 24",
+	)
+	_, err := runContainerdImageExportCommand(
+		command,
+		demoHTTPImageTag,
+		"kind-node",
+	)
+	if err == nil {
+		t.Fatal("structured containerd export unexpectedly succeeded")
+	}
+	for _, expected := range []string{
+		demoHTTPImageTag,
+		"kind-node",
+		"structured-containerd-stderr",
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("containerd export error %q omits %q", err, expected)
+		}
+	}
+}
 
-	if !containerdImageTargetMatches(output, image, digest) {
-		t.Error("matching containerd image target was not found")
+func TestValidateRuntimeImageTarget(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*imageDescriptor, map[string][]byte, *imageManifest)
+		wantErr string
+	}{
+		{
+			name: "missing target digest",
+			mutate: func(target *imageDescriptor, _ map[string][]byte, _ *imageManifest) {
+				target.Digest = ""
+			},
+			wantErr: "target has invalid digest",
+		},
+		{
+			name: "malformed target digest",
+			mutate: func(target *imageDescriptor, _ map[string][]byte, _ *imageManifest) {
+				target.Digest = "sha256:abc"
+			},
+			wantErr: "target has invalid digest",
+		},
+		{
+			name: "non-sha256 target digest",
+			mutate: func(target *imageDescriptor, _ map[string][]byte, _ *imageManifest) {
+				target.Digest = "sha512:" + strings.Repeat("a", 64)
+			},
+			wantErr: "target has invalid digest",
+		},
+		{
+			name: "config media type as target",
+			mutate: func(target *imageDescriptor, _ map[string][]byte, _ *imageManifest) {
+				target.MediaType = dockerConfigMediaType
+			},
+			wantErr: "not an image manifest or index",
+		},
+		{
+			name: "unsupported target media type",
+			mutate: func(target *imageDescriptor, _ map[string][]byte, _ *imageManifest) {
+				target.MediaType = "application/octet-stream"
+			},
+			wantErr: "not an image manifest or index",
+		},
+		{
+			name: "target digest equals config digest",
+			mutate: func(target *imageDescriptor, blobs map[string][]byte, manifest *imageManifest) {
+				target.Digest = manifest.Config.Digest
+				blobs[target.Digest] = mustJSON(t, manifest)
+			},
+			wantErr: "equals its config digest",
+		},
+		{
+			name: "missing config descriptor",
+			mutate: func(target *imageDescriptor, blobs map[string][]byte, manifest *imageManifest) {
+				manifest.Config = imageDescriptor{}
+				blobs[target.Digest] = mustJSON(t, manifest)
+			},
+			wantErr: "config media type",
+		},
+		{
+			name: "malformed config digest",
+			mutate: func(target *imageDescriptor, blobs map[string][]byte, manifest *imageManifest) {
+				manifest.Config.Digest = "sha256:abc"
+				blobs[target.Digest] = mustJSON(t, manifest)
+			},
+			wantErr: "config has invalid digest",
+		},
+		{
+			name: "missing config content",
+			mutate: func(_ *imageDescriptor, blobs map[string][]byte, manifest *imageManifest) {
+				delete(blobs, manifest.Config.Digest)
+			},
+			wantErr: "config content",
+		},
+		{
+			name: "wrong platform",
+			mutate: func(_ *imageDescriptor, blobs map[string][]byte, manifest *imageManifest) {
+				blobs[manifest.Config.Digest] = mustJSON(t, imageConfig{
+					OS:           "linux",
+					Architecture: "arm64",
+				})
+			},
+			wantErr: "want linux/amd64",
+		},
 	}
-	if containerdImageTargetMatches(
-		output,
-		image,
-		"sha256:"+strings.Repeat("b", 64),
-	) {
-		t.Error("mismatched containerd image target was accepted")
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			target, blobs, manifest := validRuntimeImageTarget(t)
+			test.mutate(&target, blobs, &manifest)
+			_, err := validateRuntimeImageTarget(target, blobs)
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Errorf("target error = %v, want containing %q", err, test.wantErr)
+			}
+		})
 	}
+}
+
+func TestValidateRuntimeImageIndexPlatformSelection(t *testing.T) {
+	target, blobs, manifest := validRuntimeImageTarget(t)
+	manifestDescriptor := target
+	target = imageDescriptor{
+		MediaType: ociIndexMediaType,
+		Digest:    "sha256:" + strings.Repeat("d", 64),
+	}
+
+	t.Run("one linux amd64 manifest", func(t *testing.T) {
+		index := imageIndex{
+			MediaType: ociIndexMediaType,
+			Manifests: []imageDescriptor{manifestDescriptor},
+		}
+		index.Manifests[0].Platform = &imagePlatform{
+			OS:           "linux",
+			Architecture: "amd64",
+		}
+		testBlobs := cloneBlobs(blobs)
+		testBlobs[target.Digest] = mustJSON(t, index)
+		identity, err := validateRuntimeImageTarget(target, testBlobs)
+		if err != nil {
+			t.Fatalf("validate indexed image: %v", err)
+		}
+		if identity.TargetDigest != target.Digest ||
+			identity.ConfigDigest != manifest.Config.Digest {
+			t.Errorf("indexed identity = %#v", identity)
+		}
+	})
+
+	t.Run("absent linux amd64 manifest", func(t *testing.T) {
+		index := imageIndex{
+			MediaType: ociIndexMediaType,
+			Manifests: []imageDescriptor{manifestDescriptor},
+		}
+		index.Manifests[0].Platform = &imagePlatform{
+			OS:           "linux",
+			Architecture: "arm64",
+		}
+		testBlobs := cloneBlobs(blobs)
+		testBlobs[target.Digest] = mustJSON(t, index)
+		_, err := validateRuntimeImageTarget(target, testBlobs)
+		if err == nil || !strings.Contains(err.Error(), "0 linux/amd64") {
+			t.Errorf("missing platform error = %v", err)
+		}
+	})
+
+	t.Run("ambiguous linux amd64 manifests", func(t *testing.T) {
+		manifestDescriptor.Platform = &imagePlatform{
+			OS:           "linux",
+			Architecture: "amd64",
+		}
+		index := imageIndex{
+			MediaType: ociIndexMediaType,
+			Manifests: []imageDescriptor{
+				manifestDescriptor,
+				manifestDescriptor,
+			},
+		}
+		testBlobs := cloneBlobs(blobs)
+		testBlobs[target.Digest] = mustJSON(t, index)
+		_, err := validateRuntimeImageTarget(target, testBlobs)
+		if err == nil || !strings.Contains(err.Error(), "2 linux/amd64") {
+			t.Errorf("ambiguous platform error = %v", err)
+		}
+	})
+}
+
+func validRuntimeImageArchive(
+	t *testing.T,
+	image string,
+) ([]byte, runtimeImageIdentity) {
+	t.Helper()
+	target, blobs, manifest := validRuntimeImageTarget(t)
+	target.Annotations = map[string]string{
+		"io.containerd.image.name": image,
+	}
+	index := imageIndex{
+		MediaType: ociIndexMediaType,
+		Manifests: []imageDescriptor{target},
+	}
+
+	var archive bytes.Buffer
+	writer := tar.NewWriter(&archive)
+	writeTarEntry(t, writer, "index.json", mustJSON(t, index))
+	for digest, contents := range blobs {
+		writeTarEntry(
+			t,
+			writer,
+			"blobs/sha256/"+strings.TrimPrefix(digest, "sha256:"),
+			contents,
+		)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close runtime archive: %v", err)
+	}
+
+	return archive.Bytes(), runtimeImageIdentity{
+		TargetDigest:    target.Digest,
+		TargetMediaType: target.MediaType,
+		ConfigDigest:    manifest.Config.Digest,
+		OS:              "linux",
+		Architecture:    "amd64",
+	}
+}
+
+func validRuntimeImageTarget(
+	t *testing.T,
+) (imageDescriptor, map[string][]byte, imageManifest) {
+	t.Helper()
+	configContents := mustJSON(t, imageConfig{
+		OS:           "linux",
+		Architecture: "amd64",
+	})
+	configDigest := digestFor(configContents)
+	layerContents := []byte("realistic compressed layer contents")
+	layerDigest := digestFor(layerContents)
+	manifest := imageManifest{
+		MediaType: dockerManifestMediaType,
+		Config: imageDescriptor{
+			MediaType: dockerConfigMediaType,
+			Digest:    configDigest,
+		},
+		Layers: []imageDescriptor{{
+			MediaType: "application/vnd.docker.image.rootfs.diff.tar.gzip",
+			Digest:    layerDigest,
+		}},
+	}
+	manifestContents := mustJSON(t, manifest)
+	manifestDigest := digestFor(manifestContents)
+	return imageDescriptor{
+			MediaType: dockerManifestMediaType,
+			Digest:    manifestDigest,
+		}, map[string][]byte{
+			manifestDigest: manifestContents,
+			configDigest:   configContents,
+			layerDigest:    layerContents,
+		}, manifest
+}
+
+func mustJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	contents, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+
+	return contents
+}
+
+func digestFor(contents []byte) string {
+	digest := sha256.Sum256(contents)
+	return fmt.Sprintf("sha256:%x", digest)
+}
+
+func writeTarEntry(
+	t *testing.T,
+	writer *tar.Writer,
+	name string,
+	contents []byte,
+) {
+	t.Helper()
+	if err := writer.WriteHeader(&tar.Header{
+		Name: name,
+		Mode: 0o600,
+		Size: int64(len(contents)),
+	}); err != nil {
+		t.Fatalf("write tar header: %v", err)
+	}
+	if _, err := writer.Write(contents); err != nil {
+		t.Fatalf("write tar contents: %v", err)
+	}
+}
+
+func cloneBlobs(blobs map[string][]byte) map[string][]byte {
+	clone := make(map[string][]byte, len(blobs))
+	for digest, contents := range blobs {
+		clone[digest] = contents
+	}
+
+	return clone
 }

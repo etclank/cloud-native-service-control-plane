@@ -20,8 +20,11 @@ limitations under the License.
 package e2e
 
 import (
+	"archive/tar"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,26 +60,53 @@ var sha256DigestPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 type demoHTTPImagePaths struct {
 	temporaryDirectory string
-	metadataPath       string
 	archivePath        string
 }
 
-type buildMetadata struct {
-	ConfigDigest string           `json:"containerimage.config.digest"`
-	Digest       string           `json:"containerimage.digest"`
-	Descriptor   *buildDescriptor `json:"containerimage.descriptor"`
+type runtimeImageIdentity struct {
+	TargetDigest    string
+	TargetMediaType string
+	ConfigDigest    string
+	OS              string
+	Architecture    string
 }
 
-type buildDescriptor struct {
-	MediaType string        `json:"mediaType"`
-	Digest    string        `json:"digest"`
-	Platform  buildPlatform `json:"platform"`
+type imageDescriptor struct {
+	MediaType   string            `json:"mediaType"`
+	Digest      string            `json:"digest"`
+	Platform    *imagePlatform    `json:"platform,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-type buildPlatform struct {
+type imagePlatform struct {
 	Architecture string `json:"architecture"`
 	OS           string `json:"os"`
 }
+
+type imageIndex struct {
+	MediaType string            `json:"mediaType"`
+	Manifests []imageDescriptor `json:"manifests"`
+}
+
+type imageManifest struct {
+	MediaType string            `json:"mediaType"`
+	Config    imageDescriptor   `json:"config"`
+	Layers    []imageDescriptor `json:"layers"`
+}
+
+type imageConfig struct {
+	Architecture string `json:"architecture"`
+	OS           string `json:"os"`
+}
+
+const (
+	dockerManifestMediaType = "application/vnd.docker.distribution.manifest.v2+json"
+	ociManifestMediaType    = "application/vnd.oci.image.manifest.v1+json"
+	dockerIndexMediaType    = "application/vnd.docker.distribution.manifest.list.v2+json"
+	ociIndexMediaType       = "application/vnd.oci.image.index.v1+json"
+	dockerConfigMediaType   = "application/vnd.docker.container.image.v1+json"
+	ociConfigMediaType      = "application/vnd.oci.image.config.v1+json"
+)
 
 // TestE2E runs the e2e test suite to validate the solution in an isolated environment.
 // The default setup requires Kind and CertManager.
@@ -175,10 +205,6 @@ func buildAndLoadDemoHTTPImage() {
 	)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
-	digest, err := imageDigestFromBuildMetadata(paths.metadataPath)
-	ExpectWithOffset(1, err).NotTo(HaveOccurred())
-	demoHTTPImage = demoHTTPImageRepository + "@" + digest
-
 	By("exporting the loaded demo-http image as a Docker archive")
 	err = runDemoImageCommand(
 		demoHTTPSaveCommand(paths),
@@ -208,7 +234,17 @@ func buildAndLoadDemoHTTPImage() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to list Kind nodes")
 	nodes := utils.GetNonEmptyLines(output)
 	ExpectWithOffset(1, nodes).NotTo(BeEmpty())
+	var authoritativeIdentity runtimeImageIdentity
 	for _, node := range nodes {
+		identity, err := runtimeImageIdentityFromNode(node, demoHTTPImageTag)
+		ExpectWithOffset(1, err).NotTo(HaveOccurred())
+		if authoritativeIdentity.TargetDigest == "" {
+			authoritativeIdentity = identity
+			demoHTTPImage = demoHTTPImageRepository + "@" + identity.TargetDigest
+		} else {
+			ExpectWithOffset(1, identity).To(Equal(authoritativeIdentity))
+		}
+
 		cmd = exec.Command(
 			"docker", "exec", node,
 			"ctr", "-n", "k8s.io", "images", "tag",
@@ -220,17 +256,12 @@ func buildAndLoadDemoHTTPImage() {
 		)
 		ExpectWithOffset(1, err).NotTo(HaveOccurred())
 
-		cmd = exec.Command(
-			"docker", "exec", node,
-			"ctr", "-n", "k8s.io", "images", "list",
-			"name=="+demoHTTPImage,
+		canonicalIdentity, err := runtimeImageIdentityFromNode(
+			node,
+			demoHTTPImage,
 		)
-		output, err = utils.Run(cmd)
 		ExpectWithOffset(1, err).NotTo(HaveOccurred())
-		ExpectWithOffset(
-			1,
-			containerdImageTargetMatches(output, demoHTTPImage, digest),
-		).To(BeTrue())
+		ExpectWithOffset(1, canonicalIdentity).To(Equal(authoritativeIdentity))
 
 		Eventually(func() error {
 			cmd := exec.Command(
@@ -250,7 +281,6 @@ func buildAndLoadDemoHTTPImage() {
 func newDemoHTTPImagePaths(temporaryDirectory string) demoHTTPImagePaths {
 	return demoHTTPImagePaths{
 		temporaryDirectory: temporaryDirectory,
-		metadataPath:       filepath.Join(temporaryDirectory, "metadata.json"),
 		archivePath:        filepath.Join(temporaryDirectory, "demo-http.tar"),
 	}
 }
@@ -262,7 +292,6 @@ func demoHTTPBuildCommand(paths demoHTTPImagePaths) *exec.Cmd {
 		"--provenance=false",
 		"--sbom=false",
 		"--build-arg", "SOURCE_DATE_EPOCH=0",
-		"--metadata-file", paths.metadataPath,
 		"--load",
 		"--tag", demoHTTPImageTag,
 		"--file", "images/demo-http/Dockerfile",
@@ -286,88 +315,315 @@ func runDemoImageCommand(cmd *exec.Cmd, action string) error {
 	return nil
 }
 
-func containerdImageTargetMatches(
-	output string,
-	image string,
-	digest string,
-) bool {
-	for line := range strings.SplitSeq(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) >= 3 && fields[0] == image && fields[2] == digest {
-			return true
-		}
-	}
-
-	return false
+func containerdImageArchiveCommand(node string, image string) *exec.Cmd {
+	return exec.Command(
+		"docker", "exec", node,
+		"ctr", "-n", "k8s.io", "images", "export",
+		"--local", "--skip-manifest-json", "-", image,
+	)
 }
 
-func imageDigestFromBuildMetadata(metadataPath string) (string, error) {
-	metadataContents, err := os.ReadFile(metadataPath)
+func runtimeImageIdentityFromNode(
+	node string,
+	image string,
+) (runtimeImageIdentity, error) {
+	cmd := containerdImageArchiveCommand(node, image)
+	archive, err := runContainerdImageExportCommand(cmd, image, node)
 	if err != nil {
-		return "", fmt.Errorf("read Buildx metadata: %w", err)
+		return runtimeImageIdentity{}, err
 	}
 
-	metadata := &buildMetadata{}
-	if err := json.Unmarshal(metadataContents, metadata); err != nil {
-		return "", fmt.Errorf("decode Buildx metadata: %w", err)
-	}
+	return runtimeImageIdentityFromArchive(archive, image)
+}
 
-	if !sha256DigestPattern.MatchString(metadata.Digest) {
-		return "", fmt.Errorf(
-			"Buildx metadata has invalid image digest %q",
-			metadata.Digest,
+func runContainerdImageExportCommand(
+	cmd *exec.Cmd,
+	image string,
+	node string,
+) ([]byte, error) {
+	projectDirectory, err := utils.GetProjectDir()
+	if err != nil {
+		return nil, fmt.Errorf(
+			"resolve project directory: %w",
+			err,
 		)
 	}
-	if metadata.Descriptor != nil {
-		if !sha256DigestPattern.MatchString(metadata.Descriptor.Digest) {
-			return "", fmt.Errorf(
-				"Buildx metadata has invalid descriptor digest %q",
-				metadata.Descriptor.Digest,
+	cmd.Dir = projectDirectory
+	cmd.Env = append(os.Environ(), "GO111MODULE=on")
+	_, _ = fmt.Fprintf(
+		GinkgoWriter,
+		"running structured containerd image export for %q on %q\n",
+		image,
+		node,
+	)
+	archive, err := cmd.Output()
+	if err != nil {
+		stderr := ""
+		if exitError, ok := err.(*exec.ExitError); ok {
+			stderr = string(exitError.Stderr)
+		}
+		return nil, fmt.Errorf(
+			"export containerd image %q on %q: %s: %w",
+			image,
+			node,
+			stderr,
+			err,
+		)
+	}
+
+	return archive, nil
+}
+
+func runtimeImageIdentityFromArchive(
+	archive []byte,
+	image string,
+) (runtimeImageIdentity, error) {
+	indexContents, blobs, err := readContainerdImageArchive(archive)
+	if err != nil {
+		return runtimeImageIdentity{}, err
+	}
+
+	index := &imageIndex{}
+	if err := json.Unmarshal(indexContents, index); err != nil {
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"decode containerd image index: %w",
+			err,
+		)
+	}
+	if index.MediaType != ociIndexMediaType {
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"containerd export index media type %q is not %q",
+			index.MediaType,
+			ociIndexMediaType,
+		)
+	}
+
+	var targets []imageDescriptor
+	for _, descriptor := range index.Manifests {
+		if descriptor.Annotations["io.containerd.image.name"] == image {
+			targets = append(targets, descriptor)
+		}
+	}
+	if len(targets) != 1 {
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"containerd export has %d targets for %q, want 1",
+			len(targets),
+			image,
+		)
+	}
+
+	return validateRuntimeImageTarget(targets[0], blobs)
+}
+
+func readContainerdImageArchive(
+	archive []byte,
+) ([]byte, map[string][]byte, error) {
+	reader := tar.NewReader(bytes.NewReader(archive))
+	var indexContents []byte
+	blobs := make(map[string][]byte)
+	for {
+		header, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf(
+				"read containerd image archive: %w",
+				err,
 			)
 		}
-		if metadata.Descriptor.Digest != metadata.Digest {
-			return "", fmt.Errorf(
-				"Buildx descriptor digest %q does not match image digest %q",
-				metadata.Descriptor.Digest,
-				metadata.Digest,
+		if header.Typeflag != tar.TypeReg {
+			continue
+		}
+		contents, err := io.ReadAll(reader)
+		if err != nil {
+			return nil, nil, fmt.Errorf(
+				"read containerd archive entry %q: %w",
+				header.Name,
+				err,
 			)
 		}
-		if metadata.Descriptor.MediaType != "" &&
-			metadata.Descriptor.MediaType !=
-				"application/vnd.docker.distribution.manifest.v2+json" &&
-			metadata.Descriptor.MediaType !=
-				"application/vnd.oci.image.manifest.v1+json" {
-			return "", fmt.Errorf(
-				"Buildx descriptor media type %q is not an image manifest",
-				metadata.Descriptor.MediaType,
+		switch {
+		case header.Name == "index.json":
+			indexContents = contents
+		case strings.HasPrefix(header.Name, "blobs/sha256/"):
+			digest := "sha256:" + strings.TrimPrefix(
+				header.Name,
+				"blobs/sha256/",
+			)
+			blobs[digest] = contents
+		}
+	}
+	if len(indexContents) == 0 {
+		return nil, nil, fmt.Errorf(
+			"containerd image archive has no index.json",
+		)
+	}
+
+	return indexContents, blobs, nil
+}
+
+func validateRuntimeImageTarget(
+	target imageDescriptor,
+	blobs map[string][]byte,
+) (runtimeImageIdentity, error) {
+	if err := validateImageDigest("target", target.Digest); err != nil {
+		return runtimeImageIdentity{}, err
+	}
+
+	manifestDescriptor := target
+	switch target.MediaType {
+	case dockerManifestMediaType, ociManifestMediaType:
+	case dockerIndexMediaType, ociIndexMediaType:
+		indexContents, ok := blobs[target.Digest]
+		if !ok {
+			return runtimeImageIdentity{}, fmt.Errorf(
+				"containerd target content %q is unavailable",
+				target.Digest,
 			)
 		}
-		if metadata.Descriptor.Platform.OS != "" ||
-			metadata.Descriptor.Platform.Architecture != "" {
-			if metadata.Descriptor.Platform.OS != "linux" ||
-				metadata.Descriptor.Platform.Architecture != "amd64" {
-				return "", fmt.Errorf(
-					"Buildx descriptor platform is %s/%s, want linux/amd64",
-					metadata.Descriptor.Platform.OS,
-					metadata.Descriptor.Platform.Architecture,
-				)
+		index := &imageIndex{}
+		if err := json.Unmarshal(indexContents, index); err != nil {
+			return runtimeImageIdentity{}, fmt.Errorf(
+				"decode containerd target index: %w",
+				err,
+			)
+		}
+		var linuxAMD64 []imageDescriptor
+		for _, descriptor := range index.Manifests {
+			if descriptor.Platform != nil &&
+				descriptor.Platform.OS == "linux" &&
+				descriptor.Platform.Architecture == "amd64" {
+				linuxAMD64 = append(linuxAMD64, descriptor)
 			}
 		}
-	}
-	if metadata.ConfigDigest != "" &&
-		!sha256DigestPattern.MatchString(metadata.ConfigDigest) {
-		return "", fmt.Errorf(
-			"Buildx metadata has invalid config digest %q",
-			metadata.ConfigDigest,
-		)
-	}
-	if metadata.ConfigDigest == metadata.Digest {
-		return "", fmt.Errorf(
-			"Buildx image digest unexpectedly equals its config digest",
+		if len(linuxAMD64) != 1 {
+			return runtimeImageIdentity{}, fmt.Errorf(
+				"containerd target index has %d linux/amd64 manifests, want 1",
+				len(linuxAMD64),
+			)
+		}
+		manifestDescriptor = linuxAMD64[0]
+	default:
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"containerd target media type %q is not an image manifest or index",
+			target.MediaType,
 		)
 	}
 
-	return metadata.Digest, nil
+	if err := validateImageManifestMediaType(
+		manifestDescriptor.MediaType,
+	); err != nil {
+		return runtimeImageIdentity{}, err
+	}
+	if err := validateImageDigest(
+		"manifest",
+		manifestDescriptor.Digest,
+	); err != nil {
+		return runtimeImageIdentity{}, err
+	}
+	manifestContents, ok := blobs[manifestDescriptor.Digest]
+	if !ok {
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"containerd manifest content %q is unavailable",
+			manifestDescriptor.Digest,
+		)
+	}
+	manifest := &imageManifest{}
+	if err := json.Unmarshal(manifestContents, manifest); err != nil {
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"decode containerd image manifest: %w",
+			err,
+		)
+	}
+	if manifest.MediaType != "" &&
+		manifest.MediaType != manifestDescriptor.MediaType {
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"containerd manifest media type %q does not match descriptor %q",
+			manifest.MediaType,
+			manifestDescriptor.MediaType,
+		)
+	}
+	if manifest.Config.MediaType != dockerConfigMediaType &&
+		manifest.Config.MediaType != ociConfigMediaType {
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"containerd config media type %q is not an image config",
+			manifest.Config.MediaType,
+		)
+	}
+	if err := validateImageDigest("config", manifest.Config.Digest); err != nil {
+		return runtimeImageIdentity{}, err
+	}
+	if target.Digest == manifest.Config.Digest ||
+		manifestDescriptor.Digest == manifest.Config.Digest {
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"containerd image target or manifest digest equals its config digest",
+		)
+	}
+	configContents, ok := blobs[manifest.Config.Digest]
+	if !ok {
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"containerd config content %q is unavailable",
+			manifest.Config.Digest,
+		)
+	}
+	config := &imageConfig{}
+	if err := json.Unmarshal(configContents, config); err != nil {
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"decode containerd image config: %w",
+			err,
+		)
+	}
+	if config.OS != "linux" || config.Architecture != "amd64" {
+		return runtimeImageIdentity{}, fmt.Errorf(
+			"containerd image config platform is %s/%s, want linux/amd64",
+			config.OS,
+			config.Architecture,
+		)
+	}
+	for _, layer := range manifest.Layers {
+		if err := validateImageDigest("layer", layer.Digest); err != nil {
+			return runtimeImageIdentity{}, err
+		}
+		if _, ok := blobs[layer.Digest]; !ok {
+			return runtimeImageIdentity{}, fmt.Errorf(
+				"containerd layer content %q is unavailable",
+				layer.Digest,
+			)
+		}
+	}
+
+	return runtimeImageIdentity{
+		TargetDigest:    target.Digest,
+		TargetMediaType: target.MediaType,
+		ConfigDigest:    manifest.Config.Digest,
+		OS:              config.OS,
+		Architecture:    config.Architecture,
+	}, nil
+}
+
+func validateImageDigest(name string, digest string) error {
+	if !sha256DigestPattern.MatchString(digest) {
+		return fmt.Errorf(
+			"containerd %s has invalid digest %q",
+			name,
+			digest,
+		)
+	}
+
+	return nil
+}
+
+func validateImageManifestMediaType(mediaType string) error {
+	if mediaType != dockerManifestMediaType &&
+		mediaType != ociManifestMediaType {
+		return fmt.Errorf(
+			"containerd manifest media type %q is unsupported",
+			mediaType,
+		)
+	}
+
+	return nil
 }
 
 func verifyLoadedDemoHTTPImage() {
