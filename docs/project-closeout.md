@@ -1,7 +1,9 @@
 # Project Baseline Closeout
 
-**Completion date:** 24 July 2026  
-**Authoritative branch:** `main`  
+**Completion date:** 24 July 2026
+
+**Authoritative branch:** `main`
+
 **Scope:** complete for the current portfolio, interview-preparation, and
 lightweight application-hosting needs
 
