@@ -1,7 +1,7 @@
 # Cloud-Native Service Control Plane — Build and Learning Guide
 
 > Status: Complete through H8
-> Last updated: 23 July 2026
+> Last updated: 24 July 2026
 > Target: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s
 > Purpose: Explain the build, preserve the commands, and provide a reproducible reconstruction path.
 
@@ -96,7 +96,7 @@ kubectl in WSL
       |
       | https://127.0.0.1:16443
       v
-background SSH tunnel over TCP 22
+foreground SSH tunnel over TCP 22
       |
       | remote 127.0.0.1:6443
       v
@@ -904,24 +904,21 @@ The kubeconfig contains powerful cluster credentials. File mode `600` means only
 
 The K3s API listens on server port 6443, but the Hetzner firewall does not expose that port publicly. The SSH tunnel provides temporary private access.
 
-**WSL:**
+**WSL, dedicated tunnel terminal:**
 
 ```bash
-export KUBECONFIG="$HOME/.kube/portfolio-k3s.yaml"
-
-mkdir -p "$HOME/.ssh/controlmasters"
-chmod 700 "$HOME/.ssh/controlmasters"
-
 ssh \
-  -M \
-  -S "$HOME/.ssh/controlmasters/portfolio-k3s-tunnel.sock" \
-  -fNT \
+  -NT \
   -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=60 \
+  -o ServerAliveCountMax=3 \
   -L 127.0.0.1:16443:127.0.0.1:6443 \
   portfolio-k3s
 ```
 
-This command does not open a shell and does not enter a pod:
+Leave that terminal open. It is normally quiet because `-N` starts no remote
+command and `-T` disables pseudo-terminal allocation. This command does not
+open a shell or enter a Pod:
 
 - `kubectl` continues to run in WSL;
 - it connects to local port 16443;
@@ -929,24 +926,48 @@ This command does not open a shell and does not enter a pod:
 - the server passes it to its own loopback port 6443;
 - K3s authenticates the kubeconfig and handles the request.
 
-Check the tunnel:
+**WSL, second terminal:**
 
 ```bash
+export KUBECONFIG="$HOME/.kube/portfolio-k3s.yaml"
+kubectl config current-context
+kubectl get nodes
+kubectl get pods --all-namespaces
+```
+
+When the session is finished, press `Ctrl+C` in the dedicated tunnel terminal.
+Closing that foreground terminal also ends the tunnel. K3s and all workloads
+continue running.
+
+For an unusually long session, a background ControlMaster is an optional
+advanced workflow. Check for an existing master before starting another one;
+a socket file alone does not prove the master is active.
+
+```bash
+mkdir -p "$HOME/.ssh/controlmasters"
+chmod 700 "$HOME/.ssh/controlmasters"
+
 ssh \
   -S "$HOME/.ssh/controlmasters/portfolio-k3s-tunnel.sock" \
   -O check \
   portfolio-k3s
 ```
 
-Use the cluster:
+Only when no active master exists, start it:
 
 ```bash
-kubectl config current-context
-kubectl get nodes
-kubectl get pods --all-namespaces
+ssh \
+  -M \
+  -S "$HOME/.ssh/controlmasters/portfolio-k3s-tunnel.sock" \
+  -fNT \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=60 \
+  -o ServerAliveCountMax=3 \
+  -L 127.0.0.1:16443:127.0.0.1:6443 \
+  portfolio-k3s
 ```
 
-Stop only the local tunnel:
+Check it with the preceding `-O check` command. Stop it explicitly:
 
 ```bash
 ssh \
@@ -955,7 +976,13 @@ ssh \
   portfolio-k3s
 ```
 
-Closing WSL also stops the tunnel. K3s and all workloads continue running on the server. A later `connection refused` on `127.0.0.1:16443` means the local tunnel is absent, not that Kubernetes necessarily stopped.
+A background tunnel can remain active after its original terminal closes. It
+normally ends when WSL shuts down, the connection fails, the SSH process
+exits, or `-O exit` is used. Both workflows bind only WSL
+`127.0.0.1:16443`; neither makes the API public. A later `connection refused`
+on that endpoint means the local tunnel is absent, not that Kubernetes
+necessarily stopped. The day-to-day and stale-socket procedures are
+authoritative in [`operator-guide.md`](operator-guide.md).
 
 ## H3.11 External Exposure Validation
 
@@ -2417,7 +2444,10 @@ kubectl config current-context
 
 ## kubectl reports 127.0.0.1:16443 refused
 
-The kubeconfig is correct but the SSH tunnel is not running. Start or check the tunnel from H3.10.
+The kubeconfig is correct but the SSH tunnel is not running. Start the default
+foreground tunnel from H3.10 and leave its dedicated terminal open. If the
+optional background workflow was deliberately used, run its `-O check`
+command instead.
 
 ## SSH times out
 

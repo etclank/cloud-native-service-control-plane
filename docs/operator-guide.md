@@ -1,7 +1,7 @@
 # Cloud-Native Service Control Plane — Operator Guide
 
 > Status: H8 operating guide, version 1.1
-> Last updated: 23 July 2026
+> Last updated: 24 July 2026
 > Environment: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s
 > H8 is complete; SmartEnergy, backup, and later roadmap phases remain future work.
 
@@ -46,7 +46,7 @@ It is an operator runbook, not the full architectural explanation. A separate sy
 | Local kubeconfig | `~/.kube/portfolio-k3s.yaml` |
 | Local Kubernetes API endpoint | `https://127.0.0.1:16443` |
 | Remote Kubernetes API endpoint | `127.0.0.1:6443`, reached through SSH |
-| SSH control socket | `~/.ssh/controlmasters/portfolio-k3s-tunnel.sock` |
+| Optional background-tunnel control socket | `~/.ssh/controlmasters/portfolio-k3s-tunnel.sock` |
 | Local Argo CD endpoint | `https://127.0.0.1:18080`, available only while port-forwarding |
 
 The server is intentionally a portfolio and learning environment. It is not a highly available production cluster.
@@ -130,7 +130,11 @@ K3s Kubernetes API
 
 Port `6443` is not exposed publicly. The local tunnel makes the remote Kubernetes API temporarily available only on WSL loopback port `16443`.
 
-The SSH shell and the Kubernetes tunnel are related but independent. Closing an ordinary SSH shell does not necessarily close a background tunnel, and closing WSL stops the tunnel even though the server and K3s continue running.
+An ordinary SSH login, the Kubernetes API tunnel, and the Argo CD
+port-forward are separate processes. The normal Kubernetes workflow uses a
+visible foreground SSH tunnel: closing its dedicated terminal or pressing
+`Ctrl+C` ends that tunnel. The optional background ControlMaster workflow has
+a different lifecycle and can survive the terminal that started it.
 
 ### 4.3 Private Argo CD access
 
@@ -197,34 +201,73 @@ Host portfolio-k3s
 
 ## 6. Start a Kubernetes Administration Session
 
-### Step 1: configure the current WSL shell
+### 6.1 Default: foreground, session-scoped tunnel
 
-The environment variable is shell-local and must be set again in a new terminal unless it is later added to a shell configuration file.
+Open a dedicated WSL terminal and start the tunnel:
+
+```bash
+ssh \
+  -NT \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=60 \
+  -o ServerAliveCountMax=3 \
+  -L 127.0.0.1:16443:127.0.0.1:6443 \
+  portfolio-k3s
+```
+
+Leave this terminal open. A quiet terminal is normal: `-N` starts no remote
+command and `-T` disables pseudo-terminal allocation. This command does not
+use SSH multiplexing and does not create a control socket.
+
+Open a second WSL terminal for `kubectl`, then set and inspect the intended
+kubeconfig:
 
 ```bash
 export KUBECONFIG="$HOME/.kube/portfolio-k3s.yaml"
+stat -c '%a %n' "$KUBECONFIG"
+kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}{"\n"}'
 ```
 
-Confirm the file is protected:
+The expected file mode is `600`, and the server must be
+`https://127.0.0.1:16443`.
+
+Validate Kubernetes access:
 
 ```bash
-stat -c '%a %n' "$KUBECONFIG"
+kubectl config current-context
+kubectl get nodes
+kubectl get pods --all-namespaces
 ```
 
-Expected mode:
+The expected context is `portfolio-k3s`, and node `portfolio-k3s-01` must be
+`Ready`.
 
-```text
-600 /home/clancy/.kube/portfolio-k3s.yaml
-```
+When the work session is finished, return to the dedicated tunnel terminal
+and press `Ctrl+C`. Closing that terminal also ends the foreground tunnel.
 
-### Step 2: ensure the control-socket directory exists
+The relevant options are:
+
+- `-N`: do not execute a remote command.
+- `-T`: do not allocate a terminal.
+- `ExitOnForwardFailure=yes`: fail immediately if port forwarding cannot be created.
+- `ServerAliveInterval` and `ServerAliveCountMax`: detect a lost SSH connection.
+- `-L`: forward local `127.0.0.1:16443` to the server's `127.0.0.1:6443`.
+
+The foreground workflow does not change the cluster security boundary relative
+to the background workflow. Its advantage is visible, simpler lifecycle
+management.
+
+### 6.2 Optional advanced workflow: background ControlMaster
+
+Use a background tunnel only for a long session that genuinely needs to
+survive its starting terminal. First create the protected socket directory:
 
 ```bash
 mkdir -p "$HOME/.ssh/controlmasters"
 chmod 700 "$HOME/.ssh/controlmasters"
 ```
 
-### Step 3: check whether the tunnel is already running
+Before starting anything, check for an existing master:
 
 ```bash
 ssh \
@@ -233,9 +276,11 @@ ssh \
   portfolio-k3s
 ```
 
-If it reports that the master is running, do not start a second tunnel.
+If the check reports an active master, reuse it and do not start another
+tunnel. A socket file by itself is not proof that a master is active.
 
-### Step 4: start the tunnel when it is not running
+Start the optional background tunnel only when the check confirms there is no
+active master:
 
 ```bash
 ssh \
@@ -243,39 +288,26 @@ ssh \
   -S "$HOME/.ssh/controlmasters/portfolio-k3s-tunnel.sock" \
   -fNT \
   -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=60 \
+  -o ServerAliveCountMax=3 \
   -L 127.0.0.1:16443:127.0.0.1:6443 \
   portfolio-k3s
 ```
 
-Options used:
-
-- `-M`: create an SSH control-master connection.
-- `-S`: store its control socket at the documented path.
-- `-f`: move the tunnel into the background after authentication.
-- `-N`: do not execute a remote command.
-- `-T`: do not allocate a terminal.
-- `ExitOnForwardFailure=yes`: fail immediately if port forwarding cannot be created.
-- `-L`: forward local `127.0.0.1:16443` to the server's `127.0.0.1:6443`.
-
-### Step 5: validate Kubernetes access
+Check it after startup with the same `-O check` command. Stop it explicitly
+when the work session ends:
 
 ```bash
-kubectl config current-context
-kubectl get nodes
-kubectl get pods --all-namespaces
+ssh \
+  -S "$HOME/.ssh/controlmasters/portfolio-k3s-tunnel.sock" \
+  -O exit \
+  portfolio-k3s
 ```
 
-Expected context:
-
-```text
-portfolio-k3s
-```
-
-Expected node state:
-
-```text
-portfolio-k3s-01   Ready
-```
+A background master can remain active after its original terminal closes. It
+normally ends when WSL shuts down, the connection fails, the SSH process
+exits, or the explicit `-O exit` command is used. Both tunnel modes listen only
+on local `127.0.0.1`; neither publicly exposes the Kubernetes API.
 
 ## 7. Access Argo CD Privately
 
@@ -321,6 +353,11 @@ Stop only the Argo CD port-forward with `Ctrl+C` in its terminal. Argo CD and it
 The complete synchronization, diagnosis, rollback, Git reconciliation, and credential-rotation procedure is in [`docs/argocd-sync-rollback-runbook.md`](argocd-sync-rollback-runbook.md).
 
 ## 8. Stop the Kubernetes Tunnel
+
+For the default foreground workflow, press `Ctrl+C` in the dedicated tunnel
+terminal. Closing that terminal also stops its SSH process and tunnel.
+
+If the optional background ControlMaster workflow was used, stop it with:
 
 ```bash
 ssh \
@@ -787,17 +824,26 @@ Example:
 The connection to the server 127.0.0.1:16443 was refused
 ```
 
-Cause: the kubeconfig points to the local end of the SSH tunnel, but the tunnel is not running.
+Check each part of the local path:
 
-Fix:
+1. confirm the dedicated foreground-tunnel terminal is still open;
+2. confirm `KUBECONFIG` is
+   `"$HOME/.kube/portfolio-k3s.yaml"`;
+3. confirm the kubeconfig server is `https://127.0.0.1:16443`;
+4. confirm the SSH connection completed successfully;
+5. confirm local TCP 16443 is listening;
+6. run `kubectl get nodes` again.
 
-1. Set `KUBECONFIG`.
-2. Start the SSH tunnel using Section 6.
-3. Run `kubectl get nodes` again.
+```bash
+printf '%s\n' "$KUBECONFIG"
+kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}{"\n"}'
+ss -ltnp | grep ':16443'
+```
 
-### The SSH control socket already exists
+### `ControlSocket` already exists
 
-Check it first:
+This message applies to the optional background workflow. First check whether
+the master can actually be contacted:
 
 ```bash
 ssh \
@@ -806,12 +852,38 @@ ssh \
   portfolio-k3s
 ```
 
-If the check succeeds, reuse the existing tunnel. If the check fails and no process is listening on local port `16443`, remove only the stale socket and start the tunnel again:
+If the check succeeds, an active master exists: reuse it and do not start
+another tunnel.
+
+If the check cannot contact the master, the socket may be stale. Only after
+that failed check, remove the exact socket:
 
 ```bash
-ss -lnt | grep ':16443 ' || true
 rm -f "$HOME/.ssh/controlmasters/portfolio-k3s-tunnel.sock"
 ```
+
+Do not infer that a tunnel is active merely because the socket file exists.
+
+### Local port 16443 is already in use
+
+Inspect the listener before acting:
+
+```bash
+ss -ltnp | grep ':16443'
+```
+
+Do not broadly terminate SSH processes. If the listener is an obsolete
+background tunnel, stop only that identified master with the documented
+`-O exit` command when possible. If it is the default foreground tunnel,
+return to its dedicated terminal and decide whether to reuse it or stop it
+with `Ctrl+C`.
+
+### Repeated SSH passphrase prompts
+
+Repeated prompts commonly mean another background master or local forward
+already exists and a second SSH connection is being attempted. Inspect TCP
+16443 and, for the optional background workflow, run the documented
+`-O check` before starting anything else.
 
 ### SSH times out after the local public IP changes
 

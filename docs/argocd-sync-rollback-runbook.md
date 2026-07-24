@@ -21,44 +21,34 @@ The Argo CD server is private. Do not create a public Ingress, LoadBalancer, Nod
 
 ## 1. Start an Administrative Session
 
-Set the local tools:
-
-```bash
-export KUBECONFIG="$HOME/.kube/portfolio-k3s.yaml"
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-Check the Kubernetes API SSH tunnel:
+Open a dedicated WSL terminal and start the default foreground Kubernetes API
+tunnel:
 
 ```bash
 ssh \
-  -S "$HOME/.ssh/controlmasters/portfolio-k3s-tunnel.sock" \
-  -O check \
-  portfolio-k3s
-```
-
-If it is not running:
-
-```bash
-mkdir -p "$HOME/.ssh/controlmasters"
-chmod 700 "$HOME/.ssh/controlmasters"
-
-ssh \
-  -M \
-  -S "$HOME/.ssh/controlmasters/portfolio-k3s-tunnel.sock" \
-  -fNT \
+  -NT \
   -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=60 \
+  -o ServerAliveCountMax=3 \
   -L 127.0.0.1:16443:127.0.0.1:6443 \
   portfolio-k3s
 ```
 
-Validate Kubernetes:
+Leave that quiet terminal open. In a second WSL terminal, set the local tools
+and validate Kubernetes:
 
 ```bash
+export KUBECONFIG="$HOME/.kube/portfolio-k3s.yaml"
+export PATH="$HOME/.local/bin:$PATH"
 kubectl get nodes
 ```
 
-In a second WSL terminal, keep this foreground process running:
+The complete optional background ControlMaster lifecycle is in
+[`operator-guide.md`](operator-guide.md#62-optional-advanced-workflow-background-controlmaster).
+Do not start a background master without first running its documented
+`-O check`.
+
+In another WSL terminal, keep the Argo CD port-forward in the foreground:
 
 ```bash
 export KUBECONFIG="$HOME/.kube/portfolio-k3s.yaml"
@@ -320,7 +310,12 @@ Do not reuse the GHCR pull token as an Argo CD repository credential.
 
 Stop the foreground Argo CD port-forward with `Ctrl+C` in its terminal.
 
-When Kubernetes administration is also finished, stop the API SSH tunnel:
+When Kubernetes administration is also finished, press `Ctrl+C` in the
+dedicated foreground API-tunnel terminal. Closing that terminal also ends the
+tunnel.
+
+If the optional background ControlMaster workflow was deliberately used,
+stop it with:
 
 ```bash
 ssh \

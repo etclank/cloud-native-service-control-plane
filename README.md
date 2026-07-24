@@ -267,35 +267,32 @@ Planned documentation includes:
 
 ## Administrative Quick Start
 
-The Kubernetes API is not exposed publicly. Start the SSH tunnel from WSL:
+The Kubernetes API is not exposed publicly. In a dedicated WSL terminal,
+start the default foreground tunnel:
 
 ```bash
-export KUBECONFIG="$HOME/.kube/portfolio-k3s.yaml"
-
 ssh \
-  -M \
-  -S "$HOME/.ssh/controlmasters/portfolio-k3s-tunnel.sock" \
-  -fNT \
+  -NT \
   -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=60 \
+  -o ServerAliveCountMax=3 \
   -L 127.0.0.1:16443:127.0.0.1:6443 \
   portfolio-k3s
 ```
 
-Validate access:
+Leave that quiet terminal open. In a second WSL terminal, select the
+kubeconfig and validate access:
 
 ```bash
+export KUBECONFIG="$HOME/.kube/portfolio-k3s.yaml"
 kubectl get nodes
 kubectl get pods --all-namespaces
 ```
 
-Stop the tunnel:
-
-```bash
-ssh \
-  -S "$HOME/.ssh/controlmasters/portfolio-k3s-tunnel.sock" \
-  -O exit \
-  portfolio-k3s
-```
+Press `Ctrl+C` in the dedicated tunnel terminal when the session is finished.
+Closing that terminal also ends the foreground tunnel. The optional
+background ControlMaster lifecycle is documented in
+[`docs/operator-guide.md`](docs/operator-guide.md).
 
 See [`docs/operator-guide.md`](docs/operator-guide.md) for the complete procedure and troubleshooting steps.
 
