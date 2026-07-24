@@ -90,15 +90,20 @@ func TestDemoHTTPImageCommandsArePortable(t *testing.T) {
 func TestImageDigestFromBuildMetadata(t *testing.T) {
 	imageDigest := "sha256:" + strings.Repeat("a", 64)
 	configDigest := "sha256:" + strings.Repeat("b", 64)
-	validMetadata := buildMetadata{
-		ConfigDigest: configDigest,
-		Digest:       imageDigest,
+	validMetadata := func() buildMetadata {
+		return buildMetadata{
+			ConfigDigest: configDigest,
+			Digest:       imageDigest,
+			Descriptor: &buildDescriptor{
+				MediaType: "application/vnd.docker.distribution.manifest.v2+json",
+				Digest:    imageDigest,
+				Platform: buildPlatform{
+					OS:           "linux",
+					Architecture: "amd64",
+				},
+			},
+		}
 	}
-	validMetadata.Descriptor.MediaType =
-		"application/vnd.docker.distribution.manifest.v2+json"
-	validMetadata.Descriptor.Digest = imageDigest
-	validMetadata.Descriptor.Platform.OS = "linux"
-	validMetadata.Descriptor.Platform.Architecture = "amd64"
 
 	tests := []struct {
 		name     string
@@ -106,11 +111,31 @@ func TestImageDigestFromBuildMetadata(t *testing.T) {
 		contents []byte
 		wantErr  string
 	}{
-		{name: "valid"},
+		{name: "complete matching descriptor"},
+		{
+			name: "CI digest-only metadata",
+			contents: []byte(
+				`{"containerimage.digest":` +
+					`"sha256:bbfbd9744e99fd0f74ef01d29068230595ce86c4f58d231edf781b29959d93f4"}`,
+			),
+		},
+		{
+			name: "descriptor omitted with config digest",
+			mutate: func(metadata *buildMetadata) {
+				metadata.Descriptor = nil
+			},
+		},
 		{name: "malformed JSON", contents: []byte("{"), wantErr: "decode Buildx metadata"},
 		{
 			name:    "missing image digest",
 			mutate:  func(metadata *buildMetadata) { metadata.Digest = "" },
+			wantErr: "invalid image digest",
+		},
+		{
+			name: "malformed image digest",
+			mutate: func(metadata *buildMetadata) {
+				metadata.Digest = "sha256:abc"
+			},
 			wantErr: "invalid image digest",
 		},
 		{
@@ -121,6 +146,13 @@ func TestImageDigestFromBuildMetadata(t *testing.T) {
 			wantErr: "invalid image digest",
 		},
 		{
+			name: "descriptor without digest",
+			mutate: func(metadata *buildMetadata) {
+				metadata.Descriptor.Digest = ""
+			},
+			wantErr: "invalid descriptor digest",
+		},
+		{
 			name: "descriptor mismatch",
 			mutate: func(metadata *buildMetadata) {
 				metadata.Descriptor.Digest = "sha256:" + strings.Repeat("c", 64)
@@ -128,11 +160,32 @@ func TestImageDigestFromBuildMetadata(t *testing.T) {
 			wantErr: "does not match image digest",
 		},
 		{
-			name: "config digest used as image digest",
+			name: "malformed descriptor digest",
+			mutate: func(metadata *buildMetadata) {
+				metadata.Descriptor.Digest = "sha256:abc"
+			},
+			wantErr: "invalid descriptor digest",
+		},
+		{
+			name: "config digest without manifest digest",
+			contents: []byte(
+				`{"containerimage.config.digest":"` + configDigest + `"}`,
+			),
+			wantErr: "invalid image digest",
+		},
+		{
+			name: "manifest digest equal to config digest",
 			mutate: func(metadata *buildMetadata) {
 				metadata.ConfigDigest = imageDigest
 			},
 			wantErr: "equals its config digest",
+		},
+		{
+			name: "malformed config digest",
+			mutate: func(metadata *buildMetadata) {
+				metadata.ConfigDigest = "sha256:abc"
+			},
+			wantErr: "invalid config digest",
 		},
 		{
 			name: "wrong platform",
@@ -145,7 +198,7 @@ func TestImageDigestFromBuildMetadata(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			metadata := validMetadata
+			metadata := validMetadata()
 			if test.mutate != nil {
 				test.mutate(&metadata)
 			}
@@ -167,8 +220,13 @@ func TestImageDigestFromBuildMetadata(t *testing.T) {
 				if err != nil {
 					t.Fatalf("parse valid metadata: %v", err)
 				}
-				if digest != imageDigest {
-					t.Errorf("image digest = %q, want %q", digest, imageDigest)
+				wantDigest := imageDigest
+				if test.name == "CI digest-only metadata" {
+					wantDigest =
+						"sha256:bbfbd9744e99fd0f74ef01d29068230595ce86c4f58d231edf781b29959d93f4"
+				}
+				if digest != wantDigest {
+					t.Errorf("image digest = %q, want %q", digest, wantDigest)
 				}
 				return
 			}

@@ -62,16 +62,20 @@ type demoHTTPImagePaths struct {
 }
 
 type buildMetadata struct {
-	ConfigDigest string `json:"containerimage.config.digest"`
-	Digest       string `json:"containerimage.digest"`
-	Descriptor   struct {
-		MediaType string `json:"mediaType"`
-		Digest    string `json:"digest"`
-		Platform  struct {
-			Architecture string `json:"architecture"`
-			OS           string `json:"os"`
-		} `json:"platform"`
-	} `json:"containerimage.descriptor"`
+	ConfigDigest string           `json:"containerimage.config.digest"`
+	Digest       string           `json:"containerimage.digest"`
+	Descriptor   *buildDescriptor `json:"containerimage.descriptor"`
+}
+
+type buildDescriptor struct {
+	MediaType string        `json:"mediaType"`
+	Digest    string        `json:"digest"`
+	Platform  buildPlatform `json:"platform"`
+}
+
+type buildPlatform struct {
+	Architecture string `json:"architecture"`
+	OS           string `json:"os"`
 }
 
 // TestE2E runs the e2e test suite to validate the solution in an isolated environment.
@@ -314,31 +318,44 @@ func imageDigestFromBuildMetadata(metadataPath string) (string, error) {
 			metadata.Digest,
 		)
 	}
-	if metadata.Descriptor.Digest != metadata.Digest {
-		return "", fmt.Errorf(
-			"Buildx descriptor digest %q does not match image digest %q",
-			metadata.Descriptor.Digest,
-			metadata.Digest,
-		)
+	if metadata.Descriptor != nil {
+		if !sha256DigestPattern.MatchString(metadata.Descriptor.Digest) {
+			return "", fmt.Errorf(
+				"Buildx metadata has invalid descriptor digest %q",
+				metadata.Descriptor.Digest,
+			)
+		}
+		if metadata.Descriptor.Digest != metadata.Digest {
+			return "", fmt.Errorf(
+				"Buildx descriptor digest %q does not match image digest %q",
+				metadata.Descriptor.Digest,
+				metadata.Digest,
+			)
+		}
+		if metadata.Descriptor.MediaType != "" &&
+			metadata.Descriptor.MediaType !=
+				"application/vnd.docker.distribution.manifest.v2+json" &&
+			metadata.Descriptor.MediaType !=
+				"application/vnd.oci.image.manifest.v1+json" {
+			return "", fmt.Errorf(
+				"Buildx descriptor media type %q is not an image manifest",
+				metadata.Descriptor.MediaType,
+			)
+		}
+		if metadata.Descriptor.Platform.OS != "" ||
+			metadata.Descriptor.Platform.Architecture != "" {
+			if metadata.Descriptor.Platform.OS != "linux" ||
+				metadata.Descriptor.Platform.Architecture != "amd64" {
+				return "", fmt.Errorf(
+					"Buildx descriptor platform is %s/%s, want linux/amd64",
+					metadata.Descriptor.Platform.OS,
+					metadata.Descriptor.Platform.Architecture,
+				)
+			}
+		}
 	}
-	if metadata.Descriptor.MediaType !=
-		"application/vnd.docker.distribution.manifest.v2+json" &&
-		metadata.Descriptor.MediaType !=
-			"application/vnd.oci.image.manifest.v1+json" {
-		return "", fmt.Errorf(
-			"Buildx descriptor media type %q is not an image manifest",
-			metadata.Descriptor.MediaType,
-		)
-	}
-	if metadata.Descriptor.Platform.OS != "linux" ||
-		metadata.Descriptor.Platform.Architecture != "amd64" {
-		return "", fmt.Errorf(
-			"Buildx descriptor platform is %s/%s, want linux/amd64",
-			metadata.Descriptor.Platform.OS,
-			metadata.Descriptor.Platform.Architecture,
-		)
-	}
-	if !sha256DigestPattern.MatchString(metadata.ConfigDigest) {
+	if metadata.ConfigDigest != "" &&
+		!sha256DigestPattern.MatchString(metadata.ConfigDigest) {
 		return "", fmt.Errorf(
 			"Buildx metadata has invalid config digest %q",
 			metadata.ConfigDigest,
