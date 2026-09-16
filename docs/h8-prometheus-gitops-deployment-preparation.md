@@ -1,5 +1,11 @@
 # H8.4D Prometheus GitOps Deployment Preparation
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+> Node addresses in this Markdown record are sanitized to the documentation-only
+> address `192.0.2.10`; substitute your own verified address.
+
 H8.4D prepares the reviewed Prometheus and reduced kube-state-metrics package
 for a later manually authorized Argo CD synchronization. It does not deploy or
 synchronize a live resource.
@@ -84,7 +90,7 @@ Before any live synchronization:
    ingress policies;
 3. confirm the managed demo has reconciled the H8.4C metrics Service port;
 4. revalidate the Kubernetes API backend used by the exact
-   `142.132.178.45/32` TCP 6443 egress policies;
+   `192.0.2.10/32` TCP 6443 egress policies;
 5. confirm adequate node and `local-path` capacity for the 3Gi claim and the
    bounded CPU/memory budget;
 6. record the current observability Application, AppProject, Collector

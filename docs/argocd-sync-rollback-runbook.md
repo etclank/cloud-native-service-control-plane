@@ -1,5 +1,9 @@
 # Argo CD Synchronization and Rollback Runbook
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+
 This runbook operates the Argo CD installation for the Cloud-Native Service Control Plane portfolio cluster.
 
 ## Scope

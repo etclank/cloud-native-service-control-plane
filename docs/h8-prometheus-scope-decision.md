@@ -1,5 +1,11 @@
 # H8.4 Final Prometheus Scope Decision
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+> Node addresses in this Markdown record are sanitized to the documentation-only
+> address `192.0.2.10`; substitute your own verified address.
+
 H8 uses exactly six Prometheus scrape jobs:
 
 1. `prometheus-self`;
@@ -23,7 +29,7 @@ This is a deliberate scope reduction, not proof that the earlier security
 questions were resolved. The exact kubelet TCP 10250 serving-certificate,
 Prometheus trust anchor and rotation contract remain unproven. kube-router's
 enforcement of ordinary Pod-to-local-node traffic for exact
-`142.132.178.45/32` TCP 10250 also remains unproven. The historical evidence
+`192.0.2.10/32` TCP 10250 also remains unproven. The historical evidence
 is retained in
 [`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).
 

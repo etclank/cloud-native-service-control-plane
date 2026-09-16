@@ -1,5 +1,11 @@
 # Cloud-Native Service Control Plane — Operator Guide
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+> Node addresses in this Markdown record are sanitized to the documentation-only
+> address `192.0.2.10`; substitute your own verified address.
+
 > Status: H8 operating guide, version 1.1
 > Last updated: 24 July 2026
 > Environment: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s
@@ -39,9 +45,9 @@ reconstruction path.
 | Ingress controller | Traefik |
 | Certificate controller | cert-manager `v1.21.0` |
 | GitOps controller | Argo CD `v3.4.5` |
-| SSH user | `eoghan` |
+| SSH user | `platform-admin` |
 | Local SSH alias | `portfolio-k3s` |
-| Public IPv4 | `142.132.178.45` |
+| Public IPv4 | `192.0.2.10` |
 | Domain | `eoghanclancy.eu` |
 | TLS validation hostname | `test.platform.eoghanclancy.eu` |
 | Control-plane API | `https://api.platform.eoghanclancy.eu` |
@@ -91,7 +97,7 @@ WSL terminal
 Hetzner firewall
     |
     v
-Ubuntu server as user eoghan
+Ubuntu server as user platform-admin
 ```
 
 Use this when working directly with Ubuntu or when running the K3s command-line tools on the server.
@@ -153,7 +159,7 @@ hostnamectl --static
 Expected results:
 
 ```text
-eoghan
+platform-admin
 portfolio-k3s-01
 ```
 
@@ -173,8 +179,8 @@ The local SSH configuration should contain an entry equivalent to:
 
 ```sshconfig
 Host portfolio-k3s
-    HostName 142.132.178.45
-    User eoghan
+    HostName 192.0.2.10
+    User platform-admin
     IdentityFile ~/.ssh/hetzner_portfolio_ed25519
     IdentitiesOnly yes
     ServerAliveInterval 60
@@ -421,9 +427,9 @@ dig +short A test.platform.eoghanclancy.eu @8.8.8.8
 dig +short A api.platform.eoghanclancy.eu
 ```
 
-Current expected result:
+Historical expected result (substitute your verified address):
 
-- the `A` queries return `142.132.178.45`;
+- the `A` queries return the configured node IPv4;
 - the `AAAA` query returns nothing because no IPv6 DNS record has been created.
 
 ### 9.4 Public ingress validation

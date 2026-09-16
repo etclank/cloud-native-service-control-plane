@@ -1,5 +1,9 @@
 # H8.4C Prometheus Scrape Configuration Foundation
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+
 H8.4C replaces the inert H8.4B candidate scrape configuration with the six
 targets accepted by the authoritative
 [`h8-prometheus-target-matrix.json`](h8-prometheus-target-matrix.json). The

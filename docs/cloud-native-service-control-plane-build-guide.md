@@ -1,5 +1,11 @@
 # Cloud-Native Service Control Plane — Build and Learning Guide
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+> Node addresses in this Markdown record are sanitized to the documentation-only
+> address `192.0.2.10`; substitute your own verified address.
+
 > Status: Complete through H8
 > Last updated: 24 July 2026
 > Target: Hetzner Cloud, Ubuntu 24.04 LTS, single-node K3s
@@ -55,7 +61,9 @@ Never place any of the following in this repository or document:
 
 Safe items that may be documented include public hostnames, public IP addresses, public keys, resource names, non-secret manifests, versions, and validation output with secret data removed.
 
-The current public IPv4 address is `142.132.178.45`. A rebuilt VM may receive a different address, so DNS and the SSH alias must be updated after reconstruction.
+This guide uses `192.0.2.10` as a documentation-only node address and
+`platform-admin` as an example login. Supply your own node address, username,
+and ACME contact email; update DNS and the SSH alias after reconstruction.
 
 ## 3. Implemented Architecture Through H8
 
@@ -64,7 +72,7 @@ The current public IPv4 address is `142.132.178.45`. A rebuilt VM may receive a 
                                          |
           test.platform.eoghanclancy.eu and api.platform.eoghanclancy.eu
                                          |
-                          A record: 142.132.178.45
+                          A record: 192.0.2.10
                                          |
                               Hetzner Cloud Firewall
                           TCP 80 and 443 from the internet
@@ -117,11 +125,11 @@ Only ports 80 and 443 are public application endpoints. Port 22 is restricted to
 | CPU and memory | 2 vCPU, 4 GB RAM |
 | Root disk | 40 GB SSD |
 | Operating system | Ubuntu 24.04 LTS |
-| Administrative user | `eoghan` |
+| Administrative user | `platform-admin` |
 | Local SSH alias | `portfolio-k3s` |
 | SSH key name in Hetzner | `wsl-hetzner-portfolio-2026` |
 | Local private key | `~/.ssh/hetzner_portfolio_ed25519` |
-| Public IPv4 | `142.132.178.45` |
+| Public IPv4 | `192.0.2.10` |
 | Kubernetes | K3s `v1.36.2+k3s1` |
 | Ingress | Bundled Traefik |
 | Storage | Bundled local-path provisioner |
@@ -260,7 +268,7 @@ Why no extra volume was selected:
 The first connection initially used the root account created by the cloud image:
 
 ```bash
-ssh -i "$HOME/.ssh/hetzner_portfolio_ed25519" root@142.132.178.45
+ssh -i "$HOME/.ssh/hetzner_portfolio_ed25519" root@192.0.2.10
 ```
 
 On the server, the initial validation included:
@@ -294,8 +302,8 @@ The important results were:
 **Server, initially as root:** create the administrator:
 
 ```bash
-adduser eoghan
-usermod -aG sudo eoghan
+adduser platform-admin
+usermod -aG sudo platform-admin
 ```
 
 The account has a password because `sudo` requests it locally. SSH password authentication is disabled later, so this password is not accepted for remote login.
@@ -305,24 +313,24 @@ Install the existing authorized public key for the new user:
 ```bash
 install -d \
   -m 700 \
-  -o eoghan \
-  -g eoghan \
-  /home/eoghan/.ssh
+  -o platform-admin \
+  -g platform-admin \
+  /home/platform-admin/.ssh
 
 install \
   -m 600 \
-  -o eoghan \
-  -g eoghan \
+  -o platform-admin \
+  -g platform-admin \
   /root/.ssh/authorized_keys \
-  /home/eoghan/.ssh/authorized_keys
+  /home/platform-admin/.ssh/authorized_keys
 ```
 
 Validate:
 
 ```bash
-id eoghan
-sudo -l -U eoghan
-namei -l /home/eoghan/.ssh/authorized_keys
+id platform-admin
+sudo -l -U platform-admin
+namei -l /home/platform-admin/.ssh/authorized_keys
 ```
 
 Open a second WSL terminal before closing the root session:
@@ -330,7 +338,7 @@ Open a second WSL terminal before closing the root session:
 ```bash
 ssh \
   -i "$HOME/.ssh/hetzner_portfolio_ed25519" \
-  eoghan@142.132.178.45
+  platform-admin@192.0.2.10
 ```
 
 Then validate:
@@ -344,7 +352,7 @@ sudo whoami
 Expected final result:
 
 ```text
-eoghan
+platform-admin
 root
 ```
 
@@ -356,8 +364,8 @@ This proves that SSH and sudo work before root access is disabled.
 
 ```sshconfig
 Host portfolio-k3s
-    HostName 142.132.178.45
-    User eoghan
+    HostName 192.0.2.10
+    User platform-admin
     IdentityFile ~/.ssh/hetzner_portfolio_ed25519
     IdentitiesOnly yes
     ServerAliveInterval 60
@@ -454,7 +462,7 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitEmptyPasswords no
 PermitRootLogin no
-AllowUsers eoghan
+AllowUsers platform-admin
 MaxAuthTries 3
 LoginGraceTime 30
 X11Forwarding no
@@ -485,14 +493,14 @@ Confirm direct root access is rejected:
 ```bash
 ssh \
   -i "$HOME/.ssh/hetzner_portfolio_ed25519" \
-  root@142.132.178.45
+  root@192.0.2.10
 ```
 
 Why this matters:
 
 - a stolen or guessed password cannot authenticate over SSH;
 - attackers cannot directly target the root login;
-- administrative actions are attributed to `eoghan` and elevated through `sudo`;
+- administrative actions are attributed to `platform-admin` and elevated through `sudo`;
 - `AllowUsers` limits the SSH service to the intended administrator.
 
 ## H2.4 Automatic Security Updates
@@ -615,7 +623,7 @@ At the H2 baseline:
 - Ubuntu packages and kernel are current.
 - SSH uses keys only.
 - direct root SSH is disabled.
-- `eoghan` sudo access works.
+- `platform-admin` sudo access works.
 - automatic security updates are active.
 - AppArmor remains active.
 - journal growth is bounded.
@@ -823,7 +831,7 @@ Validated results:
 - CoreDNS, local-path provisioner, Metrics Server, Traefik, and ServiceLB were healthy;
 - `local-path` was the default StorageClass;
 - `traefik` was the default IngressClass;
-- the Traefik LoadBalancer advertised `142.132.178.45`;
+- the Traefik LoadBalancer advertised `192.0.2.10`;
 - Kubernetes Secret encryption was enabled with matching server hashes.
 
 Some one-time startup warnings occurred while Flannel and controllers initialized. They were accepted only after all current pods became ready and the warnings did not recur.
@@ -864,10 +872,10 @@ The K3s administrator kubeconfig is root-readable on the server. A temporary use
 ```bash
 sudo install \
   -m 600 \
-  -o eoghan \
-  -g eoghan \
+  -o platform-admin \
+  -g platform-admin \
   /etc/rancher/k3s/k3s.yaml \
-  /home/eoghan/k3s.yaml
+  /home/platform-admin/k3s.yaml
 ```
 
 **WSL:**
@@ -1061,7 +1069,7 @@ The `.eu` WHOIS notice stated that the registry receives registration contact in
 ```text
 Type: A
 Host: test.platform
-Value: 142.132.178.45
+Value: 192.0.2.10
 ```
 
 No `AAAA` record was created because IPv6 application routing had not yet been validated. Publishing an untested IPv6 record could cause IPv6-capable clients to choose a broken path.
@@ -1075,7 +1083,7 @@ dig +short A test.platform.eoghanclancy.eu @1.1.1.1
 dig +short A test.platform.eoghanclancy.eu @8.8.8.8
 ```
 
-The A queries all returned `142.132.178.45`, while the AAAA query returned nothing.
+The A queries all returned `192.0.2.10`, while the AAAA query returned nothing.
 
 Before creating an Ingress route:
 
@@ -1179,7 +1187,7 @@ metadata:
   name: letsencrypt-staging
 spec:
   acme:
-    email: eoghanclancy@live.com
+    email: admin@example.com
     server: https://acme-staging-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-staging-account-key
@@ -1296,7 +1304,7 @@ metadata:
   name: letsencrypt-production
 spec:
   acme:
-    email: eoghanclancy@live.com
+    email: admin@example.com
     server: https://acme-v02.api.letsencrypt.org/directory
     privateKeySecretRef:
       name: letsencrypt-production-account-key

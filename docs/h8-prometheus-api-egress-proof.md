@@ -1,5 +1,11 @@
 # H8.4B0 Kubernetes API Egress Compatibility Proof
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+> Node addresses in this Markdown record are sanitized to the documentation-only
+> address `192.0.2.10`; substitute your own verified address.
+
 This record closes only the Kubernetes API egress compatibility prerequisite
 for H8.4B. It does not deploy Prometheus, enable kube-state-metrics, or approve
 the H8.4 runtime.
@@ -25,11 +31,11 @@ validation objects were created. No production resource was changed.
 | --- | --- |
 | Kubernetes server | K3s `v1.36.2+k3s1`, Linux/amd64 |
 | Node | `portfolio-k3s-01`; UID `f68ef7c8-16ba-493e-9ce0-88586f2a18d4`; architecture `amd64` |
-| Node address relevant to the API | IPv4 InternalIP `142.132.178.45` |
+| Node address relevant to the API | IPv4 InternalIP `192.0.2.10` |
 | Kubernetes Service | `default/kubernetes`; UID `6d616b6b-d8d1-4583-a60e-abe34d911576`; ClusterIP `10.43.0.1`; TCP 443 targeting 6443 |
 | Kubernetes Service evidence RV | `203`, recorded as volatile evidence only |
 | API EndpointSlice | `default/kubernetes`; UID `24a23693-90b8-4c66-b5c8-0a658ddef83a`; generation 1 |
-| Ready API backend | IPv4 `142.132.178.45`, TCP 6443, `ready=true` |
+| Ready API backend | IPv4 `192.0.2.10`, TCP 6443, `ready=true` |
 | EndpointSlice evidence RV | `206`, recorded as volatile evidence only |
 | DNS Service | `kube-system/kube-dns`; UID `569a4b7c-e499-4eae-85bf-f9635c0b9ed6`; ClusterIP `10.43.0.10`; UDP/TCP 53 |
 | CoreDNS Pod | `coredns-7fc5cb9848-zz225`; UID `d70a7697-5f5a-4063-aeb3-a58bdc4fcc69`; IP `10.42.0.9`; label `k8s-app=kube-dns` |
@@ -87,8 +93,8 @@ bounded attempt through `kubernetes.default.svc`; no case was retried.
 | 1 — DNS control | Created `07:15:24Z`; finished `07:15:26Z` | Default deny plus exact CoreDNS Pod selector on UDP/TCP 53 | Resolved `kubernetes.default.svc` to `10.43.0.1`; `DNS_EXIT=0`; no API request |
 | 2 — denied API control | Created `07:16:03Z`; finished `07:16:05Z` | DNS policy only; no API allowance | DNS succeeded; TCP 443 was explicitly refused; no HTTP response; `HTTP_CODE=000`; curl exit 7 |
 | 3 — Service-IP candidate | Policy created `07:16:44Z`; Pod created `07:16:46Z`; finished `07:16:48Z` | Added only `10.43.0.1/32` TCP 443 | DNS succeeded, but TCP 443 was still explicitly refused; no HTTP response; `HTTP_CODE=000`; curl exit 7 |
-| 4 — backend fallback | Policy created `07:17:46Z`; Pod created `07:17:47Z`; finished `07:17:50Z` | Service-IP policy was absent; added only `142.132.178.45/32` TCP 6443 | DNS still resolved the Service IP; TLS 1.3 completed; unauthenticated API response HTTP 401; `REMOTE_IP=10.43.0.1`; `REMOTE_PORT=443`; curl exit 0 |
-| 5 — port exclusion | After Case 4 Pod deletion | Structural inspection of the live selected policy | Exactly one egress peer, `142.132.178.45/32`; exactly one port, TCP 6443; no `except`, range, second port, or second API policy |
+| 4 — backend fallback | Policy created `07:17:46Z`; Pod created `07:17:47Z`; finished `07:17:50Z` | Service-IP policy was absent; added only `192.0.2.10/32` TCP 6443 | DNS still resolved the Service IP; TLS 1.3 completed; unauthenticated API response HTTP 401; `REMOTE_IP=10.43.0.1`; `REMOTE_PORT=443`; curl exit 0 |
+| 5 — port exclusion | After Case 4 Pod deletion | Structural inspection of the live selected policy | Exactly one egress peer, `192.0.2.10/32`; exactly one port, TCP 6443; no `except`, range, second port, or second API policy |
 
 The Pod API timestamps above are exact. Each completed Pod was immediately
 deleted and confirmed absent before the next case. The deletion commands did
@@ -105,7 +111,7 @@ against the post-DNAT destination:
 
 ```yaml
 ipBlock:
-  cidr: 142.132.178.45/32
+  cidr: 192.0.2.10/32
 ports:
   - protocol: TCP
     port: 6443
@@ -117,7 +123,7 @@ not require `10.43.0.0/16`, `10.42.0.0/16`, a node CIDR,
 separate CoreDNS Pod-selector rule on UDP/TCP 53.
 
 The value is stable only while the single ready API EndpointSlice address and
-port remain `142.132.178.45:6443`. Rediscover and review it after:
+port remain `192.0.2.10:6443`. Rediscover and review it after:
 
 - node replacement or IPv4 readdressing;
 - an API EndpointSlice address, readiness, or port change;

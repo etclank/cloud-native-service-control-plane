@@ -1,10 +1,14 @@
 # Project Baseline Closeout
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+
 **Completion date:** 24 July 2026
 
 **Authoritative branch:** `main`
 
-**Scope:** complete for the current portfolio, interview-preparation, and
+**Scope:** complete for the portfolio demonstration and
 lightweight application-hosting needs
 
 The H8 implementation was integrated into `main` at

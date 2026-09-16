@@ -1,5 +1,11 @@
 # H8.4C-K Kubelet and cAdvisor Proof Follow-up
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+> Node addresses in this Markdown record are sanitized to the documentation-only
+> address `192.0.2.10`; substitute your own verified address.
+
 > Superseded completion decision: the proof findings remain historical
 > evidence, but the
 > [H8.4 final scope decision](h8-prometheus-scope-decision.md) makes both node
@@ -23,7 +29,7 @@ The explicit `portfolio-k3s` context reported:
 - Node: `portfolio-k3s-01`, UID
   `f68ef7c8-16ba-493e-9ce0-88586f2a18d4`;
 - K3s: `v1.36.2+k3s1`;
-- reviewed IPv4 InternalIP: `142.132.178.45`;
+- reviewed IPv4 InternalIP: `192.0.2.10`;
 - advertised kubelet endpoint: TCP 10250;
 - Prometheus ServiceAccount identity: currently denied `nodes`,
   `nodes/metrics`, `nodes/proxy`, `nodes/stats`, and `nodes/log`;
@@ -93,7 +99,7 @@ configuration nor `insecure_skip_verify` is approved for the candidate.
 ## NetworkPolicy proof result
 
 H8.4B0 proved that kube-router evaluates Kubernetes API egress against the
-post-DNAT node address `142.132.178.45/32` on TCP 6443. It did not test direct
+post-DNAT node address `192.0.2.10/32` on TCP 6443. It did not test direct
 Pod-to-host-process traffic on TCP 10250. Reusing the 6443 result for a
 different port and host process would be an inference.
 
@@ -101,7 +107,7 @@ Because SSH inspection and a controlled Pod connectivity case were
 unavailable, H8.4C-K did not prove:
 
 - that kube-router evaluates direct kubelet traffic against
-  `142.132.178.45`;
+  `192.0.2.10`;
 - that the exact `/32` TCP 10250 rule admits the Prometheus Pod;
 - that removal of that rule denies the same path;
 - whether host-process handling changes the enforcement boundary.
@@ -156,7 +162,7 @@ is unresolved:
 2. strict Prometheus TLS configuration, including whether `server_name` is
    needed;
 3. controlled kube-router allow/deny evidence for exact
-   `142.132.178.45/32` TCP 10250;
+   `192.0.2.10/32` TCP 10250;
 4. a safe network-interface value boundary before cAdvisor network families
    can be accepted.
 
@@ -168,7 +174,7 @@ properties no longer block H8 completion.
 H8.4C-KR subsequently confirmed that the intended alias and configured key
 were unambiguous, but the SSH agent held only a different public-key
 fingerprint. H8.4C-KR2 then verified the exact configured fingerprint and
-authenticated successfully to `portfolio-k3s-01` as `eoghan`. Its single
+authenticated successfully to `portfolio-k3s-01` as `platform-admin`. Its single
 session stopped before host inspection because `sudo -n` required a password.
 The exact result and remaining boundary are recorded in
 [`h8-kubelet-cadvisor-certificate-networkpolicy-proof.md`](h8-kubelet-cadvisor-certificate-networkpolicy-proof.md).

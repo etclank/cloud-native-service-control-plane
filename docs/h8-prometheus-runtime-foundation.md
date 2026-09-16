@@ -1,5 +1,11 @@
 # H8.4B Prometheus Runtime Security Foundation
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+> Node addresses in this Markdown record are sanitized to the documentation-only
+> address `192.0.2.10`; substitute your own verified address.
+
 H8.4B defines the repository-only Prometheus and kube-state-metrics runtime
 foundation. H8.4C subsequently replaced its inert scrape placeholder with the
 accepted six-job configuration. Neither dependency is enabled in the ordinary
@@ -117,9 +123,9 @@ Five candidate policies add only:
 | Policy | Selected Pod | Allowance |
 | --- | --- | --- |
 | `prometheus-dns-egress` | exact Prometheus chart labels | CoreDNS Pods selected by `k8s-app=kube-dns` in `kube-system`, UDP/TCP 53 |
-| `prometheus-kubernetes-api-egress` | exact Prometheus chart labels | `142.132.178.45/32`, TCP 6443 |
+| `prometheus-kubernetes-api-egress` | exact Prometheus chart labels | `192.0.2.10/32`, TCP 6443 |
 | `kube-state-metrics-dns-egress` | exact kube-state-metrics chart labels | CoreDNS Pods selected by `k8s-app=kube-dns` in `kube-system`, UDP/TCP 53 |
-| `kube-state-metrics-kubernetes-api-egress` | exact kube-state-metrics chart labels | `142.132.178.45/32`, TCP 6443 |
+| `kube-state-metrics-kubernetes-api-egress` | exact kube-state-metrics chart labels | `192.0.2.10/32`, TCP 6443 |
 | `kube-state-metrics-metrics-ingress` | exact kube-state-metrics chart labels | exact Prometheus Pod labels, TCP 8080 |
 
 The API rule is the post-DNAT backend proven by

@@ -28,3 +28,14 @@ jobs:
         run: |
           go mod tidy
           make test
+
+      - name: Check generated files and module metadata
+        run: git diff --exit-code -- go.mod go.sum api config/crd/bases config/rbac/role.yaml
+
+      - name: Build all binaries and run race detector
+        run: |
+          go build ./...
+          go test -race ./...
+
+      - name: Validate Helm rendering and Argo CD compatibility
+        run: make observability-validate

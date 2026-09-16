@@ -1,5 +1,11 @@
 # H8 Observability Architecture and Capacity Design
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+> Node addresses in this Markdown record are sanitized to the documentation-only
+> address `192.0.2.10`; substitute your own verified address.
+
 **Design date:** 2026-07-20
 
 **Repository baseline:** `h8-observability-foundation` at `7fc24d44d1478ed7d52994e561d036dccb38f8aa`
@@ -315,7 +321,7 @@ arbitrary workload labels remain prohibited metric or target labels.
 `kubelet` and `cadvisor` are closed as **optional post-H8 enhancements**, not
 silently omitted.
 Read-only discovery reconfirmed the single Node InternalIP
-`142.132.178.45` and advertised kubelet port 10250, but metadata cannot prove
+`192.0.2.10` and advertised kubelet port 10250, but metadata cannot prove
 the ServiceAccount's kubelet authorization, the TLS endpoint behavior, or
 kube-router's effective NetworkPolicy destination for direct 10250 traffic.
 The design also lacks the required use-case-derived metric-name and stable-label
@@ -339,7 +345,7 @@ permissions have no accepted H8 consumer and remain absent.
 Every target-specific policy uses the exact Prometheus Pod selector, an exact
 target Pod selector and namespace selector where cross-namespace, TCP, and one
 port. The existing post-DNAT Kubernetes API rule remains exactly
-`142.132.178.45/32` TCP 6443. The Service IP rule, complete Service/Pod/node
+`192.0.2.10/32` TCP 6443. The Service IP rule, complete Service/Pod/node
 CIDRs, unrestricted same-namespace traffic, `0.0.0.0/0`, Internet egress, and
 port ranges remain prohibited.
 
@@ -650,7 +656,7 @@ part of H8.
 H8.4B0 tested the single-node K3s `v1.36.2+k3s1` kube-router dataplane from an
 otherwise egress-isolated Pod. An exact `10.43.0.1/32` TCP 443 Service-IP rule
 did not admit the request, while the ready API backend
-`142.132.178.45/32` TCP 6443 did. The production Prometheus policy must
+`192.0.2.10/32` TCP 6443 did. The production Prometheus policy must
 therefore use the exact post-DNAT backend recorded in `values.yaml`; the full
 Service, Pod, and node CIDRs remain forbidden. Rediscover and review the value
 after node replacement or readdressing, a Kubernetes API EndpointSlice address

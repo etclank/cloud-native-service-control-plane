@@ -18,6 +18,7 @@ authorized_keys
 .kube/
 *.kubeconfig
 kubeconfig
+kubeconfig.*
 
 # Terraform
 .terraform/

@@ -1,5 +1,9 @@
 # H7 Platform Deployment Closeout
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+
 **Closeout date:** 2026-07-20
 **Phase:** H7 — Platform deployment
 **Result:** Complete

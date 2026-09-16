@@ -1,5 +1,9 @@
 # Optional Platform Improvements
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+
 **Baseline closed:** 24 July 2026
 
 The implemented platform baseline is complete for the current portfolio scope.

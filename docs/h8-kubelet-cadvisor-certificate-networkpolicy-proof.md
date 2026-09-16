@@ -1,5 +1,11 @@
 # H8.4C-KR2 Kubelet Certificate and NetworkPolicy Proof
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+> Node addresses in this Markdown record are sanitized to the documentation-only
+> address `192.0.2.10`; substitute your own verified address.
+
 > Superseded completion decision: the unresolved findings below remain valid,
 > but kubelet and cAdvisor were subsequently removed from H8 acceptance by the
 > deliberate
@@ -38,7 +44,7 @@ Read-only Kubernetes preflight reconfirmed:
 - Node `portfolio-k3s-01`, UID
   `f68ef7c8-16ba-493e-9ce0-88586f2a18d4`;
 - K3s `v1.36.2+k3s1`;
-- IPv4 InternalIP `142.132.178.45`;
+- IPv4 InternalIP `192.0.2.10`;
 - advertised kubelet TCP 10250;
 - Argo CD Synced/Healthy at Collector Commit A with no active operation;
 - all seven observability resource UIDs unchanged;
@@ -56,15 +62,15 @@ The effective alias remained exact:
 | Field | Value |
 | --- | --- |
 | Alias | `portfolio-k3s` |
-| Host | `142.132.178.45` |
-| User | `eoghan` |
+| Host | `192.0.2.10` |
+| User | `platform-admin` |
 | Port | `22` |
 | IdentitiesOnly | `yes` |
 | Configured key | `~/.ssh/hetzner_portfolio_ed25519` |
 
 The configured public key and the loaded agent identity both reported the
 expected ED25519 fingerprint
-`SHA256:UZH/Hevwku3TViA+ZhZWLa4MmOvactH0maZ+iTd5n9w`. No private-key content
+(exact fingerprint omitted from the public record). No private-key content
 was read or displayed.
 
 Exactly one SSH process was started:
@@ -83,7 +89,7 @@ id -un
 sudo -n true
 ```
 
-They reported host `portfolio-k3s-01`, user `eoghan`, and
+They reported host `portfolio-k3s-01`, user `platform-admin`, and
 `sudo: a password is required`. The script exited with status 90 at that
 explicit guard. None of its certificate, listener, process, route, interface,
 iptables, nftables, or kube-router inspection commands ran. A password was not
@@ -102,7 +108,7 @@ the permitted node-local TLS handshake. The following remain unknown:
 - not-before and not-after dates;
 - key usage and extended key usage;
 - DNS and IP SANs;
-- whether `142.132.178.45` and `portfolio-k3s-01` are stable SANs;
+- whether `192.0.2.10` and `portfolio-k3s-01` are stable SANs;
 - serving-certificate source and rotation contract;
 - the exact trust anchor available through the standard projected
   ServiceAccount CA bundle;
@@ -125,7 +131,7 @@ not re-observed over SSH. H8.4C-KR2 therefore cannot establish:
 - how ordinary Pod egress enters kube-router policy evaluation;
 - whether direct local-node delivery traverses or bypasses those chains;
 - the policy-visible TCP 10250 destination;
-- whether exact `142.132.178.45/32` TCP 10250 is meaningful and enforceable.
+- whether exact `192.0.2.10/32` TCP 10250 is meaningful and enforceable.
 
 No traffic was sent. The earlier TCP 6443 API proof is not reused as proof for
 the kubelet host process. No TCP 10250 policy is accepted or implemented.

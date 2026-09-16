@@ -139,9 +139,9 @@ opentelemetry-collector:
   extraVolumes: []
   extraVolumeMounts: []
 
-# Prometheus and kube-state-metrics remain disabled in the production render.
-# values-h8.4b-candidate.yaml enables this reviewed runtime foundation for
-# deterministic local rendering only; H8.4C owns every real scrape target.
+# Default values render the Collector foundation only. The checked-in Argo CD
+# Application also loads values-h8.4b-candidate.yaml to enable Prometheus and
+# kube-state-metrics with the six reviewed scrape jobs.
 prometheus:
   enabled: false
 
@@ -629,7 +629,8 @@ kube-state-metrics:
 # H8.4B0 proved that this K3s kube-router dataplane evaluates Kubernetes
 # Service egress after DNAT. Review this exact endpoint again after node
 # replacement, node readdressing, API EndpointSlice changes, or K3s network
-# reconfiguration. This value does not render a resource until H8.4B.
+# reconfiguration. This value renders policy only when the relevant dependency
+# is enabled. Override it for a different cluster.
 networkPolicyDestinations:
   kubernetesAPI:
     cidr: 142.132.178.45/32

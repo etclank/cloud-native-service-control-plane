@@ -1,6 +1,6 @@
-# Local review fixture for the H8.4C scrape configuration foundation. The
-# production values.yaml keeps both dependencies disabled, and Argo CD does not
-# reference this file.
+# Enabled observability overlay used by the checked-in Argo CD Application.
+# The historical filename is retained for compatibility with pinned revisions
+# and render tests. Base values alone keep both dependencies disabled.
 opentelemetry-collector:
   alternateConfig:
     service:

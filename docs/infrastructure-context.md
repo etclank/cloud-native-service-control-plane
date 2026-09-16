@@ -1,5 +1,9 @@
 # Cloud-Native Service Control Plane — Hetzner Infrastructure and Deployment Context
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+
 ## 1. Purpose of This Document
 
 This document preserves the authoritative infrastructure and deployment

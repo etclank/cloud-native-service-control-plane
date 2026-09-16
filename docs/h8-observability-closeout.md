@@ -1,5 +1,9 @@
 # H8 Observability Closeout
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+
 H8 completed on 2026-07-23 on the personal single-node K3s portfolio
 environment. The accepted scope is the private OpenTelemetry Collector plus a
 bounded standalone Prometheus and reduced kube-state-metrics deployment. Loki,

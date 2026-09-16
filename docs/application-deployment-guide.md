@@ -1,5 +1,9 @@
 # Application Deployment Guide
 
+> Historical portfolio record: deployment observations apply to the revisions
+> and dates recorded below, not current availability. Review environment-specific
+> commands before use; see the [documentation index](README.md).
+
 This guide describes the application routes the repository actually supports.
 Git is the source of truth; long-lived imperative `kubectl` changes are not
 the normal deployment workflow.
