@@ -207,12 +207,13 @@ availability and persistent telemetry backends are future work. See
 
 ## Project Status
 
-Core platform implementation is complete for the portfolio scope. Historical
-[platform](docs/h7-platform-deployment-closeout.md) and
-[observability](docs/h8-observability-closeout.md) records describe deployment
-validation at specific revisions. Current infrastructure health is not asserted.
-The [public-review validation record](docs/public-review.md) separates local
-checks from historical evidence and documents remaining limitations.
+Project 1 is complete for its intended portfolio scope. The current live
+platform was revalidated in September 2026, the real-application hosting
+contract is established, and the restricted SmartEnergy namespace, quota, and
+AppProject are present. SmartEnergy itself is not deployed. See the
+[final portfolio closeout](docs/project-final-closeout.md) for current evidence,
+accepted limitations, and the Project 2 handoff; earlier platform and
+observability closeouts remain historical point-in-time records.
 
 ## License
 
