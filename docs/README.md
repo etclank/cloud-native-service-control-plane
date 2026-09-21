@@ -6,6 +6,7 @@ Start with the [project overview](../README.md), then choose a guide:
 | --- | --- |
 | [Security model](security-model.md) | API contract, trust boundaries, and hardening limits |
 | [Application deployment](application-deployment-guide.md) | ManagedService and separate GitOps application onboarding |
+| [Real-application hosting contract](application-hosting-contract.md) | Platform, application, and administrator ownership for dedicated application onboarding |
 | [Operator guide](operator-guide.md) | Administrative access and operational procedures |
 | [Argo CD runbook](argocd-sync-rollback-runbook.md) | Manual sync, rollback, and credential rotation |
 | [Build guide](cloud-native-service-control-plane-build-guide.md) | Historical environment reconstruction |

@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: smartenergy
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  description: Restricted project for the SmartEnergy application
+
+  sourceRepos:
+    - https://github.com/etclank/smartenergy-api.git
+
+  destinations:
+    - namespace: smartenergy
+      server: https://kubernetes.default.svc
+
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: PersistentVolumeClaim
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: batch
+      kind: Job
+    - group: batch
+      kind: CronJob
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    - group: cert-manager.io
+      kind: Certificate
+    - group: traefik.io
+      kind: Middleware

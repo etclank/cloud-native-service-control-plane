@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: smartenergy
+  namespace: smartenergy
+  labels:
+    app.kubernetes.io/name: smartenergy
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  hard:
+    requests.cpu: "500m"
+    limits.cpu: "1500m"
+    requests.memory: 896Mi
+    limits.memory: 1536Mi
+    pods: "12"
+    persistentvolumeclaims: "3"
+    requests.storage: 12Gi

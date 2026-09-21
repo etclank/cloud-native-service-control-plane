@@ -6,7 +6,9 @@
 
 This guide describes the application routes the repository actually supports.
 Git is the source of truth; long-lived imperative `kubectl` changes are not
-the normal deployment workflow.
+the normal deployment workflow. Substantial independently released applications
+also follow the dedicated namespace, ownership, capacity, and admission rules in
+the [real-application hosting contract](application-hosting-contract.md).
 
 ## Supported Routes
 
