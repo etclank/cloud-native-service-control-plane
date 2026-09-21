@@ -54,13 +54,18 @@ and port. The checked-in value is environment-specific and intentionally retaine
 with its regression fixtures; rediscover and override it for another cluster.
 It is a routing destination, not authorization or permission to expose the API.
 
-The API/demo metrics policies select their entire Pods and grant ingress on
-9090 only. They do **not** grant ordinary Pod-to-Pod HTTP access on 8080.
-Historical K3s ingress/administrative checks are not proof of access on a
-different CNI or ingress topology. Before deployment, define narrowly scoped
-HTTP caller policies for the intended ingress/client identities and verify both
-allowed and denied traffic in an isolated environment. NetworkPolicy does not
-provide a universal host/node traffic boundary.
+The API has a dedicated ingress policy that allows only Traefik Pods with the
+expected identity in `kube-system` to reach its HTTP listener on TCP 8080. A
+separate policy allows only the Prometheus identity in `observability` to reach
+the API metrics listener on TCP 9090. These additive rules do not allow Traefik
+to scrape metrics or Prometheus to use the API HTTP listener.
+
+The managed-demo metrics policy selects the whole workload Pod and grants only
+Prometheus ingress on TCP 9090. Managed-demo TCP 8080 currently has no permitted
+Pod caller; adding one requires a separate decision about the intended client
+identity. Historical K3s ingress checks are not proof of access on a different
+CNI or ingress topology. Verify allowed and denied traffic on the target
+dataplane. NetworkPolicy does not provide a universal host/node traffic boundary.
 
 Operator metrics require Kubernetes bearer authentication, but the Prometheus
 job uses `insecure_skip_verify: true` for its self-signed serving certificate.

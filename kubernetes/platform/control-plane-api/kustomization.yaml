@@ -8,6 +8,7 @@ resources:
   - deployment.yaml
   - service.yaml
   - network-policy.yaml
+  - network-policy-traefik.yaml
   - certificate.yaml
   - middleware.yaml
   - ingress.yaml

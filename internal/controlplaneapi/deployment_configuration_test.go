@@ -58,9 +58,11 @@ const (
 	diagnosticValidationLabel    = "observability.eoghanclancy.eu/validation"
 	apiApplicationNameLabel      = "app.kubernetes.io/name"
 	apiApplicationComponentLabel = "app.kubernetes.io/component"
+	apiApplicationComponentValue = "api"
 	prometheusNamespace          = "observability"
 	prometheusInstanceLabel      = "app.kubernetes.io/instance"
 	apiMetricsIngressPolicy      = "control-plane-api-prometheus-metrics-ingress"
+	apiHTTPIngressPolicy         = "control-plane-api-traefik-http-ingress"
 	managedDemoMetricsPolicy     = "managed-demo-prometheus-metrics-ingress"
 	metricsPortName              = "metrics"
 	approvedAPIImage             = "ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:" +
@@ -138,6 +140,11 @@ func TestRenderedControlPlaneAPIConfiguration(t *testing.T) {
 		{
 			Kind:      networkPolicyKind,
 			Namespace: controlPlaneAPINamespace,
+			Name:      apiHTTPIngressPolicy,
+		}: {},
+		{
+			Kind:      networkPolicyKind,
+			Namespace: controlPlaneAPINamespace,
 			Name:      apiMetricsIngressPolicy,
 		}: {},
 		{
@@ -178,8 +185,49 @@ func TestRenderedControlPlaneAPIConfiguration(t *testing.T) {
 	assertControlPlaneAPIRBAC(t, resources)
 	assertControlPlaneAPIDeployment(t, resources)
 	assertControlPlaneAPIService(t, resources)
+	assertControlPlaneAPIHTTPNetworkPolicy(t, resources)
 	assertMetricsNetworkPolicies(t, resources)
 	assertControlPlaneAPITLS(t, resources)
+}
+
+func assertControlPlaneAPIHTTPNetworkPolicy(
+	t *testing.T,
+	resources map[renderedResourceKey]*unstructured.Unstructured,
+) {
+	t.Helper()
+
+	policy := &networkingv1.NetworkPolicy{}
+	convertRenderedResource(t, resources, renderedResourceKey{
+		Kind:      networkPolicyKind,
+		Namespace: controlPlaneAPINamespace,
+		Name:      apiHTTPIngressPolicy,
+	}, policy)
+	want := networkingv1.NetworkPolicySpec{
+		PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{
+			apiApplicationNameLabel:      controlPlaneAPIResourceName,
+			apiApplicationComponentLabel: apiApplicationComponentValue,
+			"app.kubernetes.io/part-of":  "cloud-native-service-control-plane",
+		}},
+		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress},
+		Ingress: []networkingv1.NetworkPolicyIngressRule{{
+			From: []networkingv1.NetworkPolicyPeer{{
+				NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+					"kubernetes.io/metadata.name": "kube-system",
+				}},
+				PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{
+					apiApplicationNameLabel: "traefik",
+					prometheusInstanceLabel: "traefik-kube-system",
+				}},
+			}},
+			Ports: []networkingv1.NetworkPolicyPort{{
+				Protocol: ptr.To(corev1.ProtocolTCP),
+				Port:     ptr.To(intstr.FromInt32(8080)),
+			}},
+		}},
+	}
+	if !reflect.DeepEqual(policy.Spec, want) {
+		t.Errorf("API HTTP NetworkPolicy = %#v, want %#v", policy.Spec, want)
+	}
 }
 
 func assertControlPlaneAPIServiceAccount(
@@ -260,10 +308,10 @@ func assertControlPlaneAPIDeployment(
 		Name:      controlPlaneAPIResourceName,
 	}, deployment)
 	wantPodLabels := map[string]string{
-		apiApplicationNameLabel:       controlPlaneAPIResourceName,
-		"app.kubernetes.io/component": "api",
-		"app.kubernetes.io/part-of":   "cloud-native-service-control-plane",
-		apiOTLPClientLabel:            apiOTLPClientValue,
+		apiApplicationNameLabel:      controlPlaneAPIResourceName,
+		apiApplicationComponentLabel: apiApplicationComponentValue,
+		"app.kubernetes.io/part-of":  "cloud-native-service-control-plane",
+		apiOTLPClientLabel:           apiOTLPClientValue,
 	}
 	if !reflect.DeepEqual(deployment.Spec.Template.Labels, wantPodLabels) {
 		t.Errorf(
@@ -538,7 +586,7 @@ func assertMetricsNetworkPolicies(
 			namespace: controlPlaneAPINamespace,
 			selector: map[string]string{
 				apiApplicationNameLabel:      controlPlaneAPIResourceName,
-				apiApplicationComponentLabel: "api",
+				apiApplicationComponentLabel: apiApplicationComponentValue,
 			},
 		},
 		{
