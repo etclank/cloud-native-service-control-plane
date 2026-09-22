@@ -36,6 +36,7 @@ const (
 	platformOperatorTarget     = "platform-operator"
 	controlPlaneAPITarget      = "control-plane-api"
 	managedDemoTarget          = "managed-demo"
+	smartEnergyTarget          = "smartenergy-api"
 	kubeletTarget              = "kubelet"
 	cadvisorTarget             = "cadvisor"
 	httpScheme                 = "http"
@@ -151,7 +152,7 @@ type prometheusMetricAllowlist struct {
 func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 	matrix, _ := readPrometheusTargetMatrix(t)
 
-	if matrix.Version != "h8.4-final-six-targets" {
+	if matrix.Version != "stage6b-seven-targets" {
 		t.Errorf("target matrix version = %q", matrix.Version)
 	}
 	if matrix.Global.ScrapeInterval != defaultScrapeInterval ||
@@ -181,6 +182,7 @@ func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 		collectorChartName:        acceptedTargetStatus,
 		controlPlaneAPITarget:     acceptedTargetStatus,
 		managedDemoTarget:         acceptedTargetStatus,
+		smartEnergyTarget:         acceptedTargetStatus,
 		kubeletTarget:             deferredTargetStatus,
 		cadvisorTarget:            deferredTargetStatus,
 	}
@@ -191,6 +193,7 @@ func TestPrometheusTargetMatrixIsClosedAndImplementationReady(t *testing.T) {
 		collectorChartName,
 		controlPlaneAPITarget,
 		managedDemoTarget,
+		smartEnergyTarget,
 	}
 	if !reflect.DeepEqual(matrix.AcceptedH8TargetIDs, wantAcceptedIDs) {
 		t.Errorf(
@@ -383,6 +386,7 @@ func TestPrometheusTargetMatrixTimingEndpointsAndCredentials(t *testing.T) {
 		collectorChartName:        {httpScheme, 8888, metricsPath, defaultScrapeInterval, defaultScrapeTimeout},
 		controlPlaneAPITarget:     {httpScheme, 9090, metricsPath, defaultScrapeInterval, defaultScrapeTimeout},
 		managedDemoTarget:         {httpScheme, 9090, metricsPath, defaultScrapeInterval, defaultScrapeTimeout},
+		smartEnergyTarget:         {httpScheme, 9090, metricsPath, defaultScrapeInterval, defaultScrapeTimeout},
 		kubeletTarget:             {httpsScheme, 10250, metricsPath, nodeScrapeInterval, nodeScrapeTimeout},
 		cadvisorTarget:            {httpsScheme, 10250, "/metrics/cadvisor", nodeScrapeInterval, nodeScrapeTimeout},
 	}

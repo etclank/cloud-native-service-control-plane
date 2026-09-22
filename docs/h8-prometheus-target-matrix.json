@@ -1,12 +1,13 @@
 {
-  "version": "h8.4-final-six-targets",
+  "version": "stage6b-seven-targets",
   "acceptedH8TargetIDs": [
     "prometheus-self",
     "kube-state-metrics",
     "platform-operator",
     "opentelemetry-collector",
     "control-plane-api",
-    "managed-demo"
+    "managed-demo",
+    "smartenergy-api"
   ],
   "postH8OptionalTargetIDs": [
     "kubelet",
@@ -25,7 +26,7 @@
     "h84DStatus": "executable",
     "h8Status": "incomplete pending deployment, live validation, and closeout",
     "evidenceReference": "docs/h8-prometheus-scope-decision.md",
-    "scopeRationale": "For the personal single-node development cluster, the accepted six-job inventory is sufficient for H8. Kubelet and cAdvisor remain unproven and unimplemented optional post-H8 enhancements; this is a deliberate scope decision, not proof of their TLS or NetworkPolicy boundaries."
+    "scopeRationale": "For the personal single-node development cluster, the original six-job H8 inventory remains unchanged and SmartEnergy API is the seventh accepted Stage 6B target. Kubelet and cAdvisor remain unproven optional enhancements; this is a deliberate scope decision, not proof of their TLS or NetworkPolicy boundaries."
   },
   "global": {
     "scrapeInterval": "30s",
@@ -436,6 +437,76 @@
       ],
       "metricPolicy": "No metric-name filtering; application metrics already use bounded method, normalized route, and status-class labels. ManagedService names and messages are not metric labels.",
       "lifecycle": "H8.4C updates reconciliation to add the metrics Service port idempotently. Only controller-owned label conjunction plus the exact namespace and port opts a workload in; annotations and user labels cannot opt in."
+    },
+    {
+      "id": "smartenergy-api",
+      "status": "accepted",
+      "purpose": "Observe bounded SmartEnergy API metrics on its private listener without exposing the public HTTP port.",
+      "ownerBatch": "Project 2 Stage 6B",
+      "deferredReason": "",
+      "namespace": "smartenergy",
+      "ownerObject": "Deployment/smartenergy/smartenergy-api",
+      "service": "Service/smartenergy/smartenergy-api",
+      "discovery": {
+        "role": "endpointslice",
+        "namespaces": [
+          "smartenergy"
+        ],
+        "fieldSelectors": [
+          "none: EndpointSlice discovery is fixed to namespace smartenergy and exact Service, Service-label, Pod-label, named-port, and readiness keep rules fail closed"
+        ],
+        "address": "ready EndpointSlice address selected only from Service/smartenergy-api named port metrics",
+        "selectors": [
+          "__meta_kubernetes_namespace=smartenergy",
+          "__meta_kubernetes_service_name=smartenergy-api",
+          "__meta_kubernetes_service_label_app_kubernetes_io_name=smartenergy",
+          "__meta_kubernetes_service_label_app_kubernetes_io_component=api",
+          "__meta_kubernetes_service_label_app_kubernetes_io_part_of=smartenergy",
+          "__meta_kubernetes_pod_label_app_kubernetes_io_name=smartenergy",
+          "__meta_kubernetes_pod_label_app_kubernetes_io_component=api",
+          "__meta_kubernetes_pod_label_app_kubernetes_io_part_of=smartenergy",
+          "__meta_kubernetes_endpointslice_port_name=metrics",
+          "__meta_kubernetes_endpointslice_endpoint_conditions_ready=true"
+        ],
+        "relabelSequence": [
+          "keep namespace matching ^smartenergy$",
+          "keep Service name matching ^smartenergy-api$",
+          "keep Service label tuple matching ^smartenergy;api;smartenergy$",
+          "keep Pod label tuple matching ^smartenergy;api;smartenergy$",
+          "keep EndpointSlice port name matching ^metrics$",
+          "keep endpoint readiness matching ^true$",
+          "replace namespace from __meta_kubernetes_namespace",
+          "replace service from __meta_kubernetes_service_name",
+          "replace pod from __meta_kubernetes_pod_name",
+          "allow Prometheus to discard every remaining __meta_kubernetes_* label"
+        ]
+      },
+      "scheme": "http",
+      "port": 9090,
+      "path": "/metrics",
+      "interval": "30s",
+      "timeout": "10s",
+      "authentication": "none",
+      "tokenFile": "",
+      "tlsVerification": "not applicable to policy-restricted in-cluster HTTP",
+      "targetLabels": [
+        "job",
+        "instance",
+        "namespace",
+        "service",
+        "pod"
+      ],
+      "rbac": [
+        "core/services get,list,watch",
+        "core/pods get,list,watch",
+        "discovery.k8s.io/endpointslices get,list,watch"
+      ],
+      "networkPolicy": [
+        "SmartEnergy allow-prometheus-metrics-ingress: observability namespace and exact Prometheus Pod selector to exact SmartEnergy API Pod selector on TCP 9090",
+        "Project 1 prometheus-smartenergy-api-metrics-egress: exact Prometheus Pod selector to smartenergy namespace and exact API Pod selector on TCP 9090"
+      ],
+      "metricPolicy": "No metric-name filtering; SmartEnergy exports bounded HTTP metrics and the discovery configuration retains only stable target labels. Public HTTP TCP 8000 is not scraped.",
+      "lifecycle": "The SmartEnergy deployment revision owns the Service, Pod labels, metrics listener, and ingress policy. Any identity, namespace, or port change requires coordinated review in both repositories."
     },
     {
       "id": "kubelet",

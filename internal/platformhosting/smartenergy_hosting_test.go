@@ -21,7 +21,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -129,17 +128,51 @@ func TestSmartEnergyAppProjectIsRestricted(t *testing.T) {
 	}
 }
 
-func TestSmartEnergyApplicationIsDeferred(t *testing.T) {
-	bootstrapDirectory := filepath.Join(repositoryRoot(), "deploy", "gitops", "bootstrap")
-	entries, err := os.ReadDir(bootstrapDirectory)
-	if err != nil {
-		t.Fatalf("read bootstrap directory: %v", err)
+func TestSmartEnergyApplicationIsPinnedAndManual(t *testing.T) {
+	application := decodeObject(t, filepath.Join(
+		repositoryRoot(), "deploy", "gitops", "bootstrap", "smartenergy-application.yaml",
+	))
+	if application.GetAPIVersion() != "argoproj.io/v1alpha1" ||
+		application.GetKind() != "Application" || application.GetName() != smartEnergyNamespace ||
+		application.GetNamespace() != argoNamespace {
+		t.Errorf("application identity = %s %s/%s %s", application.GetAPIVersion(), application.GetNamespace(), application.GetName(), application.GetKind())
 	}
-	for _, entry := range entries {
-		name := strings.ToLower(entry.Name())
-		if strings.Contains(name, "smartenergy") && strings.Contains(name, "application") {
-			t.Errorf("premature SmartEnergy Application manifest exists: %s", entry.Name())
+
+	spec := application.Object["spec"].(map[string]any)
+	if got := nestedString(t, spec, "project"); got != smartEnergyNamespace {
+		t.Errorf("application project = %q", got)
+	}
+	source := spec["source"].(map[string]any)
+	if got := nestedString(t, source, "repoURL"); got != "https://github.com/etclank/smartenergy-api.git" {
+		t.Errorf("application repository = %q", got)
+	}
+	if got := nestedString(t, source, "path"); got != "deploy/kubernetes/overlays/production" {
+		t.Errorf("application path = %q", got)
+	}
+	revision := nestedString(t, source, "targetRevision")
+	if revision != "280410f47285a29dbe6eb28159fcfcbfd76a3cd6" || len(revision) != 40 {
+		t.Errorf("application targetRevision = %q", revision)
+	}
+	for _, forbidden := range []string{"main", "HEAD", "280410f"} {
+		if revision == forbidden {
+			t.Errorf("application uses mutable or short revision %q", revision)
 		}
+	}
+
+	destination := spec["destination"].(map[string]any)
+	if got := nestedString(t, destination, "server"); got != clusterServer {
+		t.Errorf("application destination server = %q", got)
+	}
+	if got := nestedString(t, destination, "namespace"); got != smartEnergyNamespace {
+		t.Errorf("application destination namespace = %q", got)
+	}
+	syncPolicy := spec["syncPolicy"].(map[string]any)
+	if _, automated := syncPolicy["automated"]; automated {
+		t.Error("SmartEnergy Application enables automated synchronization")
+	}
+	options := syncPolicy["syncOptions"].([]any)
+	if !reflect.DeepEqual(options, []any{"CreateNamespace=false"}) {
+		t.Errorf("application sync options = %#v", options)
 	}
 }
 

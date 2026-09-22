@@ -58,7 +58,7 @@ func TestH84CCandidateScrapeConfigurationMatchesTargetMatrix(t *testing.T) {
 	assertValue(t, global, "scrape_timeout", defaultScrapeTimeout)
 
 	scrapeConfigs, found, err := unstructured.NestedSlice(configuration, "scrape_configs")
-	if err != nil || !found || len(scrapeConfigs) != 6 {
+	if err != nil || !found || len(scrapeConfigs) != 7 {
 		t.Fatalf("scrape_configs = %#v, found=%t, error=%v", scrapeConfigs, found, err)
 	}
 	jobs := make(map[string]map[string]any, len(scrapeConfigs))
@@ -247,7 +247,7 @@ func TestH84CCandidateMetricsExposureAndTargetPolicies(t *testing.T) {
 			platformSystemNamespace,
 			map[string]string{
 				applicationNameLabel:      controlPlaneAPITarget,
-				applicationComponentLabel: "api",
+				applicationComponentLabel: apiValue,
 			},
 			9090,
 		},
@@ -258,6 +258,16 @@ func TestH84CCandidateMetricsExposureAndTargetPolicies(t *testing.T) {
 				applicationNameLabel:                "managed-service",
 				"app.kubernetes.io/managed-by":      platformOperatorTarget,
 				"platform.eoghanclancy.eu/template": "demo-http",
+			},
+			9090,
+		},
+		{
+			"prometheus-smartenergy-api-metrics-egress",
+			smartEnergyValue,
+			map[string]string{
+				applicationNameLabel:        smartEnergyValue,
+				applicationComponentLabel:   "api",
+				"app.kubernetes.io/part-of": smartEnergyValue,
 			},
 			9090,
 		},
@@ -344,7 +354,7 @@ func assertEndpointSliceJobs(t *testing.T, jobs map[string]map[string]any) {
 				{[]string{metaKubernetesServiceName}, "^opentelemetry-collector$"},
 				{[]string{
 					metaKubernetesServiceAppName,
-					"__meta_kubernetes_service_label_app_kubernetes_io_part_of",
+					metaKubernetesServicePartOf,
 				}, "^opentelemetry-collector;cloud-native-service-control-plane$"},
 				{[]string{
 					metaKubernetesPodAppName,
@@ -362,7 +372,7 @@ func assertEndpointSliceJobs(t *testing.T, jobs map[string]map[string]any) {
 				{[]string{metaKubernetesServiceName}, "^control-plane-api$"},
 				{[]string{
 					metaKubernetesServiceAppName,
-					"__meta_kubernetes_service_label_app_kubernetes_io_part_of",
+					metaKubernetesServicePartOf,
 				}, "^control-plane-api;cloud-native-service-control-plane$"},
 				{[]string{
 					metaKubernetesPodAppName,
@@ -386,6 +396,25 @@ func assertEndpointSliceJobs(t *testing.T, jobs map[string]map[string]any) {
 					"__meta_kubernetes_pod_label_app_kubernetes_io_managed_by",
 					"__meta_kubernetes_pod_label_platform_eoghanclancy_eu_template",
 				}, "^managed-service;platform-operator;demo-http$"},
+				{[]string{metaKubernetesEndpointPort}, metricsPortRegex},
+				{[]string{metaKubernetesEndpointReady}, readyEndpointRegex},
+			},
+		},
+		smartEnergyTarget: {
+			namespace: smartEnergyValue,
+			keeps: []expectedKeepRule{
+				{[]string{metaKubernetesNamespace}, "^smartenergy$"},
+				{[]string{metaKubernetesServiceName}, "^smartenergy-api$"},
+				{[]string{
+					metaKubernetesServiceAppName,
+					"__meta_kubernetes_service_label_app_kubernetes_io_component",
+					metaKubernetesServicePartOf,
+				}, "^smartenergy;api;smartenergy$"},
+				{[]string{
+					metaKubernetesPodAppName,
+					"__meta_kubernetes_pod_label_app_kubernetes_io_component",
+					"__meta_kubernetes_pod_label_app_kubernetes_io_part_of",
+				}, "^smartenergy;api;smartenergy$"},
 				{[]string{metaKubernetesEndpointPort}, metricsPortRegex},
 				{[]string{metaKubernetesEndpointReady}, readyEndpointRegex},
 			},

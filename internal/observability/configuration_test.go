@@ -93,6 +93,9 @@ const (
 	metaKubernetesEndpointReady  = "__meta_kubernetes_endpointslice_endpoint_conditions_ready"
 	readyEndpointRegex           = "^true$"
 	metricsPortRegex             = "^metrics$"
+	apiValue                     = "api"
+	smartEnergyValue             = "smartenergy"
+	metaKubernetesServicePartOf  = "__meta_kubernetes_service_label_app_kubernetes_io_part_of"
 	getVerb                      = "get"
 	listVerb                     = "list"
 	watchVerb                    = "watch"
@@ -839,7 +842,7 @@ func TestFirstPartyImageSetUnchanged(t *testing.T) {
 			"8f166fe9cdcbab093dee0bbef460e96dc1ec612973c48f9a07de35f16f4d0937"),
 		"demo": []byte("ghcr.io/etclank/cloud-native-service-control-plane-demo-http@sha256:" +
 			"bf9a75e48c4cbe2a14be4c61339115b76c2af11a06bfcc1b560f52ff3ed46e9e"),
-		"api": []byte("ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:" +
+		apiValue: []byte("ghcr.io/etclank/cloud-native-service-control-plane-api@sha256:" +
 			"604c16f04b00272b7b45072ff0c50c5c2d081fbc4ee795e62a4ed1fc861df36e"),
 	}
 	if count := bytes.Count(manager, wantReferences["operator"]); count != 1 {
@@ -848,7 +851,7 @@ func TestFirstPartyImageSetUnchanged(t *testing.T) {
 	if count := bytes.Count(manager, wantReferences["demo"]); count != 1 {
 		t.Errorf("demo image count = %d, want 1", count)
 	}
-	if count := bytes.Count(api, wantReferences["api"]); count != 1 {
+	if count := bytes.Count(api, wantReferences[apiValue]); count != 1 {
 		t.Errorf("API image count = %d, want 1", count)
 	}
 }

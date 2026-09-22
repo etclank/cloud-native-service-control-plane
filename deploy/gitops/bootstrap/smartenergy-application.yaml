@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: smartenergy
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  project: smartenergy
+
+  source:
+    repoURL: https://github.com/etclank/smartenergy-api.git
+    targetRevision: 280410f47285a29dbe6eb28159fcfcbfd76a3cd6
+    path: deploy/kubernetes/overlays/production
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: smartenergy
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=false
+
+  revisionHistoryLimit: 10

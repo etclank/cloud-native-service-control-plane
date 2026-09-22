@@ -69,8 +69,8 @@ func TestObservabilityGitOpsBootstrap(t *testing.T) {
 func TestObservabilityProjectPermissionsMatchRenderedPackage(t *testing.T) {
 	project := readSingleBootstrapObject(t, "observability-project.yaml")
 	_, resources := renderH84BCandidate(t)
-	if len(resources) != 31 {
-		t.Fatalf("rendered resource count = %d, want 31", len(resources))
+	if len(resources) != 32 {
+		t.Fatalf("rendered resource count = %d, want 32", len(resources))
 	}
 
 	wantCluster := make(map[resourcePermission]struct{})

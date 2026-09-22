@@ -165,4 +165,33 @@ spec:
       ports:
         - protocol: TCP
           port: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-smartenergy-api-metrics-egress
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/component: server
+    app.kubernetes.io/part-of: cloud-native-service-control-plane
+spec:
+  podSelector:
+    matchLabels:
+{{ toYaml $prometheusSelector | indent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: smartenergy
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: smartenergy
+              app.kubernetes.io/component: api
+              app.kubernetes.io/part-of: smartenergy
+      ports:
+        - protocol: TCP
+          port: 9090
 {{- end }}

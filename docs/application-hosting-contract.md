@@ -79,12 +79,12 @@ application commit
 -> manual sync
 ```
 
-SmartEnergy's future Application contract is:
+SmartEnergy's prepared Application contract is:
 
 ```yaml
 repoURL: https://github.com/etclank/smartenergy-api.git
 path: deploy/kubernetes/overlays/production
-targetRevision: <full-40-character-SmartEnergy-commit-SHA>
+targetRevision: 280410f47285a29dbe6eb28159fcfcbfd76a3cd6
 destination: smartenergy
 project: smartenergy
 sync: manual
@@ -92,8 +92,7 @@ prune: disabled initially
 selfHeal: disabled initially
 ```
 
-The Application must not be created until the production overlay passes the
-SmartEnergy deployment gate. Promotion remains manual.
+The checked-in Application passed the admission gate and remains manual and unsynchronized. Its presence in Git does not authorize a sync.
 
 ## Secrets
 
@@ -229,15 +228,15 @@ compatibility, migration downgrade or forward-fix strategy, and data restore.
 - [x] Dedicated source, destination, and resource-restricted AppProject.
 - [x] Manual GitOps, Secret, stateful, networking, observability, and rollback
       contracts documented.
-- [ ] Application bootstrap deferred until the production package is ready.
+- [x] Application bootstrap prepared at an immutable deployment revision; manual sync remains pending.
 
 ### SmartEnergy must implement
 
-- [ ] Versioned migrations and database-backed readiness.
-- [ ] Private metrics port.
-- [ ] Immutable GHCR publication and digest-pinned production overlay.
-- [ ] Separate API, worker, and single Beat workloads.
-- [ ] PostgreSQL and Redis StatefulSets.
+- [x] Versioned migrations and database-backed readiness.
+- [x] Private metrics port.
+- [x] Immutable GHCR publication and digest-pinned production overlay.
+- [x] Separate API, worker, and single Beat workloads.
+- [x] PostgreSQL and Redis StatefulSets.
 - [ ] Explicit measured resources and low-memory rollout strategies.
 - [ ] Default-deny and exact allow NetworkPolicies.
 - [ ] Structured stdout-only logs.

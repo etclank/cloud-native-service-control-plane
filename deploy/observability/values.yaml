@@ -141,7 +141,7 @@ opentelemetry-collector:
 
 # Default values render the Collector foundation only. The checked-in Argo CD
 # Application also loads values-h8.4b-candidate.yaml to enable Prometheus and
-# kube-state-metrics with the six reviewed scrape jobs.
+# kube-state-metrics with the seven reviewed scrape jobs.
 prometheus:
   enabled: false
 
@@ -525,6 +525,65 @@ prometheus:
             - __meta_kubernetes_pod_label_platform_eoghanclancy_eu_template
           action: keep
           regex: ^managed-service;platform-operator;demo-http$
+        - source_labels:
+            - __meta_kubernetes_endpointslice_port_name
+          action: keep
+          regex: ^metrics$
+        - source_labels:
+            - __meta_kubernetes_endpointslice_endpoint_conditions_ready
+          action: keep
+          regex: ^true$
+        - source_labels:
+            - __meta_kubernetes_namespace
+          action: replace
+          regex: ^(.+)$
+          replacement: $1
+          target_label: namespace
+        - source_labels:
+            - __meta_kubernetes_service_name
+          action: replace
+          regex: ^(.+)$
+          replacement: $1
+          target_label: service
+        - source_labels:
+            - __meta_kubernetes_pod_name
+          action: replace
+          regex: ^(.+)$
+          replacement: $1
+          target_label: pod
+
+    smartenergy-api:
+      enabled: true
+      scheme: http
+      metrics_path: /metrics
+      scrape_interval: 30s
+      scrape_timeout: 10s
+      kubernetes_sd_configs:
+        - role: endpointslice
+          namespaces:
+            names:
+              - smartenergy
+      relabel_configs:
+        - source_labels:
+            - __meta_kubernetes_namespace
+          action: keep
+          regex: ^smartenergy$
+        - source_labels:
+            - __meta_kubernetes_service_name
+          action: keep
+          regex: ^smartenergy-api$
+        - source_labels:
+            - __meta_kubernetes_service_label_app_kubernetes_io_name
+            - __meta_kubernetes_service_label_app_kubernetes_io_component
+            - __meta_kubernetes_service_label_app_kubernetes_io_part_of
+          action: keep
+          regex: ^smartenergy;api;smartenergy$
+        - source_labels:
+            - __meta_kubernetes_pod_label_app_kubernetes_io_name
+            - __meta_kubernetes_pod_label_app_kubernetes_io_component
+            - __meta_kubernetes_pod_label_app_kubernetes_io_part_of
+          action: keep
+          regex: ^smartenergy;api;smartenergy$
         - source_labels:
             - __meta_kubernetes_endpointslice_port_name
           action: keep

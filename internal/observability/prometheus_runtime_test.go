@@ -94,6 +94,10 @@ func TestH84BCandidateRenderIsExplicitDeterministicAndBounded(t *testing.T) {
 			Kind: networkPolicyKind, Namespace: observabilityNamespace,
 			Name: "prometheus-managed-demo-metrics-egress",
 		}: {},
+		{
+			Kind: networkPolicyKind, Namespace: observabilityNamespace,
+			Name: "prometheus-smartenergy-api-metrics-egress",
+		}: {},
 		{Kind: networkPolicyKind, Namespace: observabilityNamespace, Name: "kube-state-metrics-dns-egress"}: {},
 		{
 			Kind: networkPolicyKind, Namespace: observabilityNamespace,
@@ -289,7 +293,7 @@ func TestH84CCandidateIdentityAndConfigurationSurface(t *testing.T) {
 		t.Errorf("Prometheus rule_files = %#v, found=%t, error=%v", ruleFiles, found, err)
 	}
 	scrapeConfigs, found, err := unstructured.NestedSlice(configuration, "scrape_configs")
-	if err != nil || !found || len(scrapeConfigs) != 6 {
+	if err != nil || !found || len(scrapeConfigs) != 7 {
 		t.Fatalf("scrape_configs = %#v, found=%t, error=%v", scrapeConfigs, found, err)
 	}
 	for _, forbidden := range []string{
