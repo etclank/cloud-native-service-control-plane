@@ -10,7 +10,7 @@ spec:
 
   source:
     repoURL: git@github.com:etclank/cloud-native-service-control-plane.git
-    targetRevision: 34420d6c3a24e7a22d8b0a9cbb1e738dca08552c
+    targetRevision: a4a87c810a9dfe073ffe9c802020b3c78f3a5117
     path: deploy/observability
     helm:
       releaseName: observability
