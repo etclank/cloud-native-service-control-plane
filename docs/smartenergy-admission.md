@@ -4,9 +4,9 @@ SmartEnergy is deployed and validated for its portfolio/demo scope. This record 
 
 | Item | Admitted value |
 | --- | --- |
-| Deployment revision | `bddafdfe31ef4958ba8f86ceed83a7968b53167d` |
-| Application image source revision | `3e39c1e66c15f276aeb88fa5c4d322ec301870e2` |
-| Application image digest | `sha256:b9ed2c1be78d707f234df14e08679204a5249def787d0b8e26f398cce41e415f` |
+| Deployment revision | `6dee39d597ce87620f4f12b17ea0bdc079d029f0` |
+| Application image source revision | `5961af5ce36d3aed2fa81ac85da107627e9b2f35` |
+| Application image digest | `sha256:0d13398c342931d23d726b4db1903508272e45fefc27687f9cfe311798a4e363` |
 | Repository | `https://github.com/etclank/smartenergy-api.git` |
 | Production overlay | `deploy/kubernetes/overlays/production` |
 | Namespace / AppProject | `smartenergy` / `smartenergy` |
@@ -66,9 +66,9 @@ Diagnose first, reduce optional work or retune resources where safe, then reasse
 
 Before the closeout revision's manual sync, confirm:
 
-- [ ] `targetRevision` is exactly `bddafdfe31ef4958ba8f86ceed83a7968b53167d`.
+- [ ] `targetRevision` is exactly `6dee39d597ce87620f4f12b17ea0bdc079d029f0`.
 - [ ] AppProject and destination namespace are exactly `smartenergy`.
-- [ ] Application image digest is exactly `sha256:b9ed2c1be78d707f234df14e08679204a5249def787d0b8e26f398cce41e415f`.
+- [ ] Application image digest is exactly `sha256:0d13398c342931d23d726b4db1903508272e45fefc27687f9cfe311798a4e363`.
 - [ ] PostgreSQL and Redis images retain their reviewed digests.
 - [ ] All three required Secret names and keys exist out of Git.
 - [ ] Resource totals fit the namespace quota.

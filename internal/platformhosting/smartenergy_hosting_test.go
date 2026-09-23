@@ -148,7 +148,7 @@ func TestSmartEnergyApplicationIsPinnedAndManual(t *testing.T) {
 		t.Errorf("application path = %q", got)
 	}
 	revision := nestedString(t, source, "targetRevision")
-	if revision != "bddafdfe31ef4958ba8f86ceed83a7968b53167d" || len(revision) != 40 {
+	if revision != "6dee39d597ce87620f4f12b17ea0bdc079d029f0" || len(revision) != 40 {
 		t.Errorf("application targetRevision = %q", revision)
 	}
 	for _, forbidden := range []string{"main", "HEAD", "ab4e3f0"} {
