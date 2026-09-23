@@ -209,8 +209,8 @@ availability and persistent telemetry backends are future work. See
 
 Project 1 is complete for its intended portfolio scope. The current live
 platform was revalidated in September 2026, the real-application hosting
-contract is established, and the restricted SmartEnergy namespace, quota, and
-AppProject are present. SmartEnergy itself is not deployed. See the
+contract is established, and SmartEnergy is live for its portfolio/demo scope
+with its restricted namespace, quota, and AppProject. See the
 [final portfolio closeout](docs/project-final-closeout.md) for current evidence,
 accepted limitations, and the Project 2 handoff; earlier platform and
 observability closeouts remain historical point-in-time records.

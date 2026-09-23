@@ -29,7 +29,7 @@ a separate platform capability for managed `demo-http` workloads.
 - a private metrics Service port with stable labels and a stable port name;
 - explicit resource requests, limits, and low-memory rollout strategies;
 - versioned database migrations and rollback compatibility; and
-- backup logic plus a tested restore runbook.
+- an explicit durability boundary, including any backup and restore capability required by the application's approved scope.
 
 The application repository owns these resources so that runtime configuration
 and release behavior change with the code they describe. It must not request
@@ -40,7 +40,7 @@ Kubernetes RBAC unless a demonstrated runtime need is reviewed.
 - DNS records;
 - Secret values and reconstruction or rotation procedures;
 - a namespace-scoped GHCR pull credential when the package is private;
-- off-node backup storage and its credentials;
+- off-node backup storage and its credentials when required by the approved application scope;
 - review of the Argo diff and manual synchronization; and
 - capacity measurements and a VM resize only when later evidence justifies it.
 
@@ -79,12 +79,12 @@ application commit
 -> manual sync
 ```
 
-SmartEnergy's prepared Application contract is:
+SmartEnergy's current Application contract is:
 
 ```yaml
 repoURL: https://github.com/etclank/smartenergy-api.git
 path: deploy/kubernetes/overlays/production
-targetRevision: ab4e3f0558982f97b5691752f970e1c2fa0836ee
+targetRevision: bddafdfe31ef4958ba8f86ceed83a7968b53167d
 destination: smartenergy
 project: smartenergy
 sync: manual
@@ -92,7 +92,7 @@ prune: disabled initially
 selfHeal: disabled initially
 ```
 
-The checked-in Application passed the admission gate and remains manual and unsynchronized. Its presence in Git does not authorize a sync.
+The checked-in Application passed the admission gate and uses manual synchronization. SmartEnergy is live; advancing the checked-in pin does not by itself authorize another sync.
 
 ## Secrets
 
@@ -102,8 +102,9 @@ objects out of band. The SmartEnergy AppProject intentionally cannot create
 Secrets.
 
 Expected categories are JWT signing material, PostgreSQL credentials, Redis
-credentials, off-node backup credentials, and a GHCR pull credential when
-required. SendGrid and OTLP credentials are optional and disabled initially.
+credentials, and a GHCR pull credential when required. Off-node backup
+credentials apply only to applications whose approved scope includes that
+capability. SendGrid and OTLP credentials are optional and disabled initially.
 The administrator owns reconstruction and coordinated rotation.
 
 ## Stateful services
@@ -116,9 +117,8 @@ The planned SmartEnergy baseline is:
 | Redis | One StatefulSet replica with local-path PVC and AOF | approximately 1 GiB | persistent, non-HA |
 
 These sizes are starting choices for application validation, not permanent
-platform guarantees. SmartEnergy owns the database and Redis manifests, schema
-migrations, backup CronJob, and restore runbook. Project 1 does not provide a
-general database service.
+platform guarantees. SmartEnergy owns the database and Redis manifests and
+schema migrations. Project 1 does not provide a general database service.
 
 A PVC preserves data across ordinary Pod replacement. It is not an off-node
 backup. A backup provides a recoverable copy; it does not make a single replica
@@ -228,7 +228,7 @@ compatibility, migration downgrade or forward-fix strategy, and data restore.
 - [x] Dedicated source, destination, and resource-restricted AppProject.
 - [x] Manual GitOps, Secret, stateful, networking, observability, and rollback
       contracts documented.
-- [x] Application bootstrap prepared at an immutable deployment revision; manual sync remains pending.
+- [x] Application bootstrap deployed at an immutable revision with manual synchronization.
 
 ### SmartEnergy must implement
 
@@ -237,21 +237,21 @@ compatibility, migration downgrade or forward-fix strategy, and data restore.
 - [x] Immutable GHCR publication and digest-pinned production overlay.
 - [x] Separate API, worker, and single Beat workloads.
 - [x] PostgreSQL and Redis StatefulSets.
-- [ ] Explicit measured resources and low-memory rollout strategies.
-- [ ] Default-deny and exact allow NetworkPolicies.
-- [ ] Structured stdout-only logs.
-- [ ] Backup logic and a tested restore runbook.
-- [ ] Demo seeding and scheduled demo mutation disabled by default.
+- [x] Explicit measured resources and low-memory rollout strategies.
+- [x] Default-deny and exact allow NetworkPolicies.
+- [x] Structured stdout-only logs.
+- [x] Demo seeding and scheduled demo mutation disabled by default.
+- [x] Pod-restart persistence validated for PostgreSQL and Redis.
+- [x] Off-node backup and node/PVC-loss recovery recorded as outside the portfolio/demo scope.
 
 ### Deployment-time actions
 
-- [ ] Provision Secrets and optional GHCR access out of band.
-- [ ] Add the pinned Argo Application and review its diff.
-- [ ] Create DNS and obtain the cert-manager Certificate.
-- [ ] Activate the final Prometheus target.
-- [ ] Deploy incrementally and measure at every capacity checkpoint.
-- [ ] Complete the first restore exercise.
-- [ ] Resize only if measurements demonstrate the need.
+- [x] Provision Secrets and optional GHCR access out of band.
+- [x] Add the pinned Argo Application and review its diff.
+- [x] Create DNS and obtain the cert-manager Certificate.
+- [x] Activate the final Prometheus target.
+- [x] Deploy incrementally and measure at every capacity checkpoint.
+- [x] Retain the existing VM after capacity validation showed no pressure condition.
 
 ## Incremental capacity checkpoints
 

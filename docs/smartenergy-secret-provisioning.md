@@ -9,7 +9,7 @@ secret_dir=/secure/local/path/smartenergy
 chmod 700 "$secret_dir"
 ```
 
-Create or update the four Secrets without writing rendered Secret YAML to disk:
+Create or update the three required Secrets without writing rendered Secret YAML to disk:
 
 ```bash
 kubectl -n smartenergy create secret generic smartenergy-runtime \
@@ -29,32 +29,24 @@ kubectl -n smartenergy create secret generic smartenergy-redis \
   --from-file=CELERY_BROKER_URL="$secret_dir/CELERY_BROKER_URL" \
   --from-file=CELERY_RESULT_BACKEND="$secret_dir/CELERY_RESULT_BACKEND" \
   --dry-run=client -o yaml | kubectl apply -f -
-
-kubectl -n smartenergy create secret generic smartenergy-backup \
-  --from-file=BACKUP_ENDPOINT="$secret_dir/BACKUP_ENDPOINT" \
-  --from-file=BACKUP_BUCKET="$secret_dir/BACKUP_BUCKET" \
-  --from-file=BACKUP_ACCESS_KEY="$secret_dir/BACKUP_ACCESS_KEY" \
-  --from-file=BACKUP_SECRET_KEY="$secret_dir/BACKUP_SECRET_KEY" \
-  --from-file=BACKUP_REGION="$secret_dir/BACKUP_REGION" \
-  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-`DATABASE_URL` must use `smartenergy-postgres:5432`. Redis uses the same password with logical database 0 for `REDIS_URL`, 1 for `CELERY_BROKER_URL`, and 2 for `CELERY_RESULT_BACKEND`. `BACKUP_ENDPOINT` must be HTTPS.
+`DATABASE_URL` must use `smartenergy-postgres:5432`. Redis uses the same password with logical database 0 for `REDIS_URL`, 1 for `CELERY_BROKER_URL`, and 2 for `CELERY_RESULT_BACKEND`.
 
 | Secret | Purpose and consumers | Rotation implications |
 | --- | --- | --- |
 | `smartenergy-runtime` | `JWT_SECRET` for the API | Rotation invalidates existing JWTs; restart the API after the controlled update. |
 | `smartenergy-postgres` | PostgreSQL initialization plus `DATABASE_URL` for migration, API, worker, and Beat | Coordinate the database role password and all application clients. Validate migration and readiness after restart. |
 | `smartenergy-redis` | Redis authentication and URLs for API, worker, and Beat | Coordinate the Redis password and all three logical-database URLs, then restart clients and verify Celery. |
-| `smartenergy-backup` | S3-compatible backup and restore access | New credentials affect future uploads and restores. Retain access to required historical objects during rotation. |
+
+`smartenergy-backup` is not required. If off-node backup and disaster recovery are implemented later, define their destination, Secret contract, retention, restore validation, and recovery runbook as a separately reviewed enhancement.
 
 Before deployment, inspect only metadata and key names:
 
 ```bash
 kubectl -n smartenergy get secret \
-  smartenergy-runtime smartenergy-postgres smartenergy-redis smartenergy-backup
+  smartenergy-runtime smartenergy-postgres smartenergy-redis
 kubectl -n smartenergy describe secret smartenergy-runtime
 kubectl -n smartenergy describe secret smartenergy-postgres
 kubectl -n smartenergy describe secret smartenergy-redis
-kubectl -n smartenergy describe secret smartenergy-backup
 ```

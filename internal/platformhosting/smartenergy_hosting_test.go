@@ -112,11 +112,9 @@ func TestSmartEnergyAppProjectIsRestricted(t *testing.T) {
 	wantPermissions := map[resourcePermission]struct{}{
 		{Group: "", Kind: "ConfigMap"}:                      {},
 		{Group: "", Kind: "Service"}:                        {},
-		{Group: "", Kind: "PersistentVolumeClaim"}:          {},
 		{Group: "apps", Kind: "Deployment"}:                 {},
 		{Group: "apps", Kind: "StatefulSet"}:                {},
 		{Group: "batch", Kind: "Job"}:                       {},
-		{Group: "batch", Kind: "CronJob"}:                   {},
 		{Group: "networking.k8s.io", Kind: "Ingress"}:       {},
 		{Group: "networking.k8s.io", Kind: "NetworkPolicy"}: {},
 		{Group: "cert-manager.io", Kind: "Certificate"}:     {},
@@ -150,7 +148,7 @@ func TestSmartEnergyApplicationIsPinnedAndManual(t *testing.T) {
 		t.Errorf("application path = %q", got)
 	}
 	revision := nestedString(t, source, "targetRevision")
-	if revision != "ab4e3f0558982f97b5691752f970e1c2fa0836ee" || len(revision) != 40 {
+	if revision != "bddafdfe31ef4958ba8f86ceed83a7968b53167d" || len(revision) != 40 {
 		t.Errorf("application targetRevision = %q", revision)
 	}
 	for _, forbidden := range []string{"main", "HEAD", "ab4e3f0"} {

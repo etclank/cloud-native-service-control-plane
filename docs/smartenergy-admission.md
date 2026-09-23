@@ -1,10 +1,10 @@
 # SmartEnergy admission record
 
-SmartEnergy admission is prepared but has not been synchronized or deployed.
+SmartEnergy is deployed and validated for its portfolio/demo scope. This record captures its immutable application and image revisions, completed Stage 7 checks, and accepted limitations.
 
 | Item | Admitted value |
 | --- | --- |
-| Deployment revision | `ab4e3f0558982f97b5691752f970e1c2fa0836ee` |
+| Deployment revision | `bddafdfe31ef4958ba8f86ceed83a7968b53167d` |
 | Application image source revision | `3e39c1e66c15f276aeb88fa5c4d322ec301870e2` |
 | Application image digest | `sha256:b9ed2c1be78d707f234df14e08679204a5249def787d0b8e26f398cce41e415f` |
 | Repository | `https://github.com/etclank/smartenergy-api.git` |
@@ -12,23 +12,23 @@ SmartEnergy admission is prepared but has not been synchronized or deployed.
 | Namespace / AppProject | `smartenergy` / `smartenergy` |
 | Hostname | `energy.platform.eoghanclancy.eu` |
 | Sync policy | Manual; automated sync, pruning, and self-healing disabled |
-| Current state | Prepared, not synchronized |
+| Current state | Live; final closeout revision prepared for manual synchronization |
 
 Project 1 owns only the Argo Application, namespace policy, AppProject, quota, and platform-side Prometheus configuration. SmartEnergy owns all rendered application workloads and namespaced runtime resources.
 
 ## Manual prerequisites
 
-Provision the four runtime Secrets using the [value-free runbook](smartenergy-secret-provisioning.md). No Secret value belongs in Git.
+Provision the three runtime Secrets using the [value-free runbook](smartenergy-secret-provisioning.md). No Secret value belongs in Git.
 
-A production backup destination requires an off-node S3-compatible HTTPS endpoint, bucket, AWS Signature V4 compatibility, access credentials, region where required, and an object lifecycle retaining seven daily and four weekly recovery points. No provider has been selected. PostgreSQL may be admitted before this choice, but the backup CronJob is not operationally complete until the destination and successful restore proof exist.
+Off-node backup and disaster recovery are optional future improvements and are not part of the current production desired state. PostgreSQL persistence across Pod replacement is validated; node or PVC loss has no recovery path. The deployment does not claim HA or disaster-recovery completeness.
 
-Do not create DNS during admission preparation. Shortly before final public exposure, configure `energy.platform.eoghanclancy.eu` to the current Hetzner public endpoint using the appropriate A, AAAA, or CNAME record. Add or verify DNS only after PostgreSQL, Redis, migration, and the API are healthy internally and capacity remains acceptable.
+DNS for `energy.platform.eoghanclancy.eu` points to the current Hetzner endpoint and public HTTPS validation passed after the internal workloads became healthy.
 
 The SmartEnergy Certificate uses `ClusterIssuer/letsencrypt-production`, matching Project 1's production issuer.
 
 ## Capacity baseline status
 
-Stage 6B could not refresh the real platform baseline because no Kubernetes context or administrative tunnel was configured on the validation host. The previously recorded sample is historical and must not be used as the deployment decision. Re-establish read-only cluster access and run the checkpoint commands below immediately before the first Stage 7 sync.
+Stage 7 began at approximately 61% node memory and completed at approximately 75%, with memory, disk, and PID pressure false. PostgreSQL, Redis, API, worker, Beat, Prometheus, TLS, networking, controlled rollout, and Pod-restart persistence passed on the existing node.
 
 ## Stage 7 checkpoints
 
@@ -62,23 +62,23 @@ Stop the rollout for `MemoryPressure=True`, `DiskPressure=True`, an OOM kill, ev
 
 Diagnose first, reduce optional work or retune resources where safe, then reassess. Resize only when evidence requires it.
 
-## Manual first-sync checklist
+## Manual final-sync checklist
 
-Before a later manual sync, confirm:
+Before the closeout revision's manual sync, confirm:
 
-- [ ] `targetRevision` is exactly `ab4e3f0558982f97b5691752f970e1c2fa0836ee`.
+- [ ] `targetRevision` is exactly `bddafdfe31ef4958ba8f86ceed83a7968b53167d`.
 - [ ] AppProject and destination namespace are exactly `smartenergy`.
 - [ ] Application image digest is exactly `sha256:b9ed2c1be78d707f234df14e08679204a5249def787d0b8e26f398cce41e415f`.
-- [ ] PostgreSQL, Redis, and backup images retain their reviewed digests.
-- [ ] All four Secret names and required keys exist out of Git.
+- [ ] PostgreSQL and Redis images retain their reviewed digests.
+- [ ] All three required Secret names and keys exist out of Git.
 - [ ] Resource totals fit the namespace quota.
 - [ ] Exactly two PVCs request 6 GiB total.
 - [ ] Ingress host is `energy.platform.eoghanclancy.eu`.
 - [ ] Certificate issuer is `letsencrypt-production`.
-- [ ] NetworkPolicies retain exact DNS, database, Redis, Traefik, Prometheus, and backup paths.
+- [ ] NetworkPolicies retain exact DNS, database, Redis, Traefik, Prometheus, and ACME solver paths.
 - [ ] Migration remains a wave `-1` Sync hook.
-- [ ] The backup CronJob and its manual destination prerequisite are understood.
 - [ ] The application render contains no Namespace, ResourceQuota, Secret, ServiceAccount, or RBAC.
-- [ ] The Argo diff contains only expected StatefulSets, Services, PVCs, Deployments, migration Job, CronJob, ConfigMap, NetworkPolicies, Ingress, Certificate, and Middleware resources.
+- [ ] The Argo diff contains only expected StatefulSets, Services, PVCs, Deployments, migration Job, ConfigMap, NetworkPolicies, Ingress, Certificate, and Middleware resources.
+- [ ] The render contains no backup CronJob, backup object-storage egress policy, or `smartenergy-backup` reference.
 
-Do not run `argocd app sync smartenergy` during Stage 6B.
+Review the final Argo diff before the normal manual synchronization. Stop if it contains PVC deletion, unexpected StatefulSet replacement, Secret deletion, RBAC changes, or unrelated drift.

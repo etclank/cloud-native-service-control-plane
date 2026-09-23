@@ -10,7 +10,7 @@ spec:
 
   source:
     repoURL: https://github.com/etclank/smartenergy-api.git
-    targetRevision: ab4e3f0558982f97b5691752f970e1c2fa0836ee
+    targetRevision: bddafdfe31ef4958ba8f86ceed83a7968b53167d
     path: deploy/kubernetes/overlays/production
 
   destination:
