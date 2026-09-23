@@ -4,7 +4,7 @@ SmartEnergy admission is prepared but has not been synchronized or deployed.
 
 | Item | Admitted value |
 | --- | --- |
-| Deployment revision | `280410f47285a29dbe6eb28159fcfcbfd76a3cd6` |
+| Deployment revision | `ab4e3f0558982f97b5691752f970e1c2fa0836ee` |
 | Application image source revision | `3e39c1e66c15f276aeb88fa5c4d322ec301870e2` |
 | Application image digest | `sha256:b9ed2c1be78d707f234df14e08679204a5249def787d0b8e26f398cce41e415f` |
 | Repository | `https://github.com/etclank/smartenergy-api.git` |
@@ -66,7 +66,7 @@ Diagnose first, reduce optional work or retune resources where safe, then reasse
 
 Before a later manual sync, confirm:
 
-- [ ] `targetRevision` is exactly `280410f47285a29dbe6eb28159fcfcbfd76a3cd6`.
+- [ ] `targetRevision` is exactly `ab4e3f0558982f97b5691752f970e1c2fa0836ee`.
 - [ ] AppProject and destination namespace are exactly `smartenergy`.
 - [ ] Application image digest is exactly `sha256:b9ed2c1be78d707f234df14e08679204a5249def787d0b8e26f398cce41e415f`.
 - [ ] PostgreSQL, Redis, and backup images retain their reviewed digests.

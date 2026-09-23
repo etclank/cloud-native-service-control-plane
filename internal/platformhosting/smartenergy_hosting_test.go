@@ -150,10 +150,10 @@ func TestSmartEnergyApplicationIsPinnedAndManual(t *testing.T) {
 		t.Errorf("application path = %q", got)
 	}
 	revision := nestedString(t, source, "targetRevision")
-	if revision != "280410f47285a29dbe6eb28159fcfcbfd76a3cd6" || len(revision) != 40 {
+	if revision != "ab4e3f0558982f97b5691752f970e1c2fa0836ee" || len(revision) != 40 {
 		t.Errorf("application targetRevision = %q", revision)
 	}
-	for _, forbidden := range []string{"main", "HEAD", "280410f"} {
+	for _, forbidden := range []string{"main", "HEAD", "ab4e3f0"} {
 		if revision == forbidden {
 			t.Errorf("application uses mutable or short revision %q", revision)
 		}

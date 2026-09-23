@@ -84,7 +84,7 @@ SmartEnergy's prepared Application contract is:
 ```yaml
 repoURL: https://github.com/etclank/smartenergy-api.git
 path: deploy/kubernetes/overlays/production
-targetRevision: 280410f47285a29dbe6eb28159fcfcbfd76a3cd6
+targetRevision: ab4e3f0558982f97b5691752f970e1c2fa0836ee
 destination: smartenergy
 project: smartenergy
 sync: manual
